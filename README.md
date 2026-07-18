@@ -22,7 +22,7 @@ one human action the loop deliberately reserves: pressing merge.
 
 - **License:** [FSL-1.1-Apache-2.0](./LICENSE.md) — free to self-host forever;
   converts to Apache-2.0 in two years.
-- **Site:** <https://nishantkumar1292.github.io/latch/> (moving to `latchgate.dev`).
+- **Site:** <https://latchgate.dev>.
 - **npm:** `latch-gate` (CLI binary: `latch`).
 - **Docs:** [strategy](./docs/STRATEGY.md) · [product](./docs/PRODUCT.md) ·
   [architecture](./docs/ARCHITECTURE.md) · [pricing](./docs/PRICING.md) ·
@@ -182,10 +182,12 @@ Latch is configured with a handful of workflow variables plus a per-repo policy 
 
 | Name | What it controls |
 |---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` (secret) | Your Claude subscription/API auth. Required. |
-| `LATCH_MODEL` / `LATCH_REVIEW_EFFORT` | The reviewer's model and reasoning effort (defaults: a strong model at `xhigh` effort — the doctrine pass is the differentiator). |
+| `CLAUDE_CODE_OAUTH_TOKEN` (secret) | Your Claude subscription token — or `ANTHROPIC_API_KEY` for metered API auth. Set exactly one. Required. |
+| `LATCH_MODEL` | The reviewer's and fixer's model (default `claude-opus-4-8`). Independence knob — set a model *unlike* your author-agent. |
+| `LATCH_REVIEW_EFFORT` | The reviewer's reasoning effort (default `xhigh` — the doctrine pass is the differentiator). |
 | `LATCH_EFFORT` | The fixer's reasoning effort (default `high`). |
-| cycle cap | Max fixer cycles per PR before human escalation (default 3). |
+| `LATCH_MAX_TURNS` | Agent turn budget per run (default `80`). |
+| `LATCH_MAX_FIX_CYCLES` | Max fixer cycles per PR before human escalation (default `3`). |
 | verdict status mode | `non-blocking` (default) or `required` — see below. |
 
 **`.latch/policy.yml`** — your review doctrine and repo landmines as versioned,
@@ -245,7 +247,7 @@ Full threat model and reporting process: [SECURITY.md](./SECURITY.md).
   Actions on your own Claude key. Everything that matters — the directional
   identity-separated loop, the anti-tamper guard, the cycle cap and escalation, the
   fixer that can push back, the doctrine library — is here and free.
-- **Hosted (waitlist — not built yet).** A zero-config GitHub App where we run the
+- **Hosted gate (waitlist — not built yet).** A zero-config GitHub App where we run the
   reviewer and fixer on our inference and billing, so you never manage a token or a
   workflow file: **$49 / active repo / mo incl. 25 gated PRs, then $8 / gated PR**,
   with a BYOK discount for teams that bring their own key.
@@ -253,7 +255,7 @@ Full threat model and reporting process: [SECURITY.md](./SECURITY.md).
   self-hosted license.
 
 Full rationale in [docs/PRICING.md](./docs/PRICING.md). Join the hosted waitlist at
-<https://nishantkumar1292.github.io/latch/> (moving to `latchgate.dev`).
+<https://latchgate.dev>.
 
 ---
 

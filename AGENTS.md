@@ -129,14 +129,21 @@ These revise the founding decisions above where they conflict.
 - [x] Repo initialized (`git init`, branch `master`), empty working tree.
 - [x] Docs + in-repo memory authored (this file, README, LICENSE, SECURITY,
       CONTRIBUTING, and `docs/`).
-- [ ] Engine ported from the source deployment: `workflows/latch-review.yml`,
+- [x] Engine ported from the source deployment: `workflows/latch-review.yml`,
       `workflows/latch-fix.yml`, `cli/bin/latch.js`,
       `doctrines/skeptical-senior-engineer.md`, `policy/examples/policy.yml`,
       `INSTALL_FOR_AGENTS.md`. *(Owned by the engine builder — reference, do not
       duplicate here.)*
-- [ ] Demo repo (`math-drills`) reproducing the middle-tile bug and a real recorded
-      run of the loop converging it.
-- [ ] Landing page live (GitHub Pages now; `latchgate.dev` after DNS).
+- [x] `latch` CLI shipped — `init` idempotently scaffolds the two workflows +
+      `.latch/policy.yml` into a target repo.
+- [x] Demo repo (`math-drills`) live — reproduces the middle-tile bug for the loop
+      to converge (the recorded run of that convergence ships with the launch video,
+      below).
+- [x] Landing page live at `latchgate.dev` (served via GitHub Pages; DNS resolves).
+- [x] Waitlist wired — the site's hosted CTA points at the live Tally form
+      (`WAITLIST_URL`); flip `PAYMENT_LINK_URL` to turn that button into Buy.
+- [x] Rehearsal #1 complete — all loop mechanisms verified live on a throwaway PR;
+      2 latent guard bugs found + fixed.
 - [ ] npm publish of `latch-gate`.
 - _Org transfer: deliberately deferred — owner decision (2026-07-18); staying on
   `nishantkumar1292/latch` unless traction demands an org._

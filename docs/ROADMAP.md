@@ -33,7 +33,7 @@ their own key.
 - [ ] **Demo repo** (`math-drills`) reproducing the middle-tile bug, and a real
       recorded run of the loop converging it — one thread fixed, one refused. See
       the launch runbook in the private ops repo `github.com/nishantkumar1292/latch-ops`.
-- [ ] **Landing page** live on GitHub Pages (<https://nishantkumar1292.github.io/latch/>),
+- [x] **Landing page** live at <https://latchgate.dev> (GitHub Pages + custom domain, HTTPS enforced),
       with the animated demo and the hosted waitlist.
 - [ ] **Escaped-bug / false-negative measurement** wired from the first real run — the
       metric is a core artifact, not a week-11 afterthought.

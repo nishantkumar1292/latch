@@ -11,11 +11,11 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="Latch — the independent merge gate for the agent era">
 <meta property="og:description" content="Two AIs argue about your PR until it's mergeable. You click merge. An independent, adversarial review⇄fix loop that converges any pull request and then stops — a human always merges.">
-<meta property="og:url" content="https://nishantkumar1292.github.io/latch/">
+<meta property="og:url" content="https://latchgate.dev/">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Latch — the independent merge gate for the agent era">
 <meta name="twitter:description" content="Two AIs argue about your PR until it's mergeable. You click merge.">
-<link rel="canonical" href="https://nishantkumar1292.github.io/latch/">
+<link rel="canonical" href="https://latchgate.dev/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230B0E14'/%3E%3Cpath%20d='M8%2017.2l5.1%205.1L24%209.2'%20fill='none'%20stroke='%232FBF71'%20stroke-width='3.6'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E">
 
 <style>
@@ -481,17 +481,17 @@ main{position:relative}
           <div class="findings">
             <!-- Finding 1: the real bug (gets fixed) -->
             <div class="card" id="f1">
-              <div class="card-head"><span class="sev"></span>drills.py · L28
+              <div class="card-head"><span class="sev"></span>src/generator.js · L28
                 <span class="state unresolved" id="f1state">unresolved</span>
               </div>
-              <div class="codeline"><span class="d">choices = </span><span class="k">sorted</span>([answer - 1, answer, answer + 1])</div>
-              <div class="f-title">choices are sorted — the correct answer is always the middle tile.</div>
+              <div class="codeline"><span class="d">var choices = </span><span class="k">[answer - 1, answer, answer + 1]</span><span class="d">;</span></div>
+              <div class="f-title">choices are in fixed order — the answer is always the middle value.</div>
               <div class="f-body" id="f1body"></div>
               <div class="reply" id="f1reply"><span class="chip-fx">fixer</span><span class="reply-body" id="f1replyBody"></span></div>
             </div>
             <!-- Finding 2: the disagreement (declined) -->
             <div class="card" id="f2">
-              <div class="card-head"><span class="sev" style="background:var(--open)"></span>test_drills.py · L11
+              <div class="card-head"><span class="sev" style="background:var(--open)"></span>test/generator.test.js · L11
                 <span class="state unresolved" id="f2state">unresolved</span>
               </div>
               <div class="f-title" id="f2title"></div>
@@ -823,7 +823,7 @@ Note: Latch reviews your PR from a separate context with an adversarial doctrine
         <details>
           <summary>Do you see my code?<svg class="pm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="ans">
-            <p>Not in the open-source version — it runs entirely in your own GitHub Actions, on your key, on your audit trail. We never receive it. The hosted gate runs on an ephemeral, code-retention-free sandbox that clones, reviews, and is destroyed; we keep only metadata (verdicts, timings, cycle counts).</p>
+            <p>The OSS gate runs entirely in your own GitHub Actions — on your key, on your audit trail — so we never see anything. The hosted gate is designed to run on an ephemeral, code-retention-free sandbox that clones, reviews, and is destroyed, keeping only metadata (verdicts, timings, cycle counts) — and it isn't live yet. Join the waitlist.</p>
           </div>
         </details>
         <details>
