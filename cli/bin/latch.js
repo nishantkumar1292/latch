@@ -118,24 +118,18 @@ function oneLine(s) {
 }
 
 // ── policy mining ────────────────────────────────────────────────────────────
-// Landmines: pull the first meaningful bullet points out of CLAUDE.md/AGENTS.md.
-function mineLandmines(root) {
-  const candidates = ['CLAUDE.md', 'AGENTS.md', '.github/CLAUDE.md', '.github/AGENTS.md'];
-  let source = null;
-  let content = null;
-  for (const rel of candidates) {
-    const txt = readFileSafe(path.join(root, rel));
-    if (txt) {
-      source = rel;
-      content = txt;
-      break;
-    }
-  }
-  if (!content) return { source: null, items: [] };
+const MINE_CAP = 6;
+// A line that is *only* a Claude-Code-style import, e.g. `@AGENTS.md`. This is the
+// increasingly common pattern where CLAUDE.md is a 2-line stub that imports the
+// real memory file — we follow it one level so those bullets are not lost.
+const IMPORT_RE = /^@([A-Za-z0-9._/-]+\.md)\s*$/m;
 
-  const items = [];
+// Pull meaningful bullet points out of one markdown blob, appending to `items`
+// (deduped, bounded by MINE_CAP). Skips fenced code blocks.
+function mineBullets(content, items) {
   let inFence = false;
   for (const raw of content.split(/\r?\n/)) {
+    if (items.length >= MINE_CAP) break;
     const line = raw.trim();
     if (line.startsWith('```')) {
       inFence = !inFence;
@@ -156,10 +150,49 @@ function mineLandmines(root) {
       .replace(/\b__([^_]+)__\b/g, '$1') // __bold__ -> bold
       .trim();
     text = oneLine(text);
-    if (text.length >= 25 && text.length <= 400) items.push(text);
-    if (items.length >= 6) break;
+    if (text.length >= 25 && text.length <= 400 && !items.includes(text)) items.push(text);
   }
-  return { source, items };
+}
+
+// Landmines: pull the first meaningful bullet points out of CLAUDE.md/AGENTS.md.
+// Tries every candidate in turn (not just the first that exists) and follows a
+// single one-level import (CLAUDE.md's `@AGENTS.md`), so the common stub pattern
+// still yields landmines. Returns the first source that actually has items; if a
+// file was found but nothing was mineable, reports that distinctly from "no file".
+function mineLandmines(root) {
+  const candidates = ['CLAUDE.md', 'AGENTS.md', '.github/CLAUDE.md', '.github/AGENTS.md'];
+  const found = []; // files that existed (candidate or followed import) but were dry so far
+
+  for (const rel of candidates) {
+    const content = readFileSafe(path.join(root, rel));
+    if (content === null) continue; // not present — try the next candidate
+    if (!found.includes(rel)) found.push(rel);
+
+    const items = [];
+    mineBullets(content, items);
+    let source = rel;
+
+    // Follow one-level import (e.g. CLAUDE.md → AGENTS.md) if we still have room.
+    if (items.length < MINE_CAP) {
+      const im = IMPORT_RE.exec(content);
+      if (im) {
+        const importedRel = im[1];
+        const importedTxt = readFileSafe(path.join(root, importedRel));
+        if (importedTxt !== null) {
+          if (!found.includes(importedRel)) found.push(importedRel);
+          const before = items.length;
+          mineBullets(importedTxt, items);
+          if (items.length > before) source = `${rel} → ${importedRel}`;
+        }
+      }
+    }
+
+    if (items.length) return { source, items, found };
+    // file existed but had nothing mineable — keep going; another candidate might.
+  }
+
+  // Nothing mineable anywhere. `found` distinguishes "found but dry" from "no file".
+  return { source: null, items: [], found };
 }
 
 // Checks: infer per-language commands from manifests at the root and one level
@@ -252,7 +285,7 @@ function inferChecks(root) {
 }
 
 function buildPolicyYaml(root) {
-  const { source, items } = mineLandmines(root);
+  const { source, items, found } = mineLandmines(root);
   const checks = inferChecks(root);
   const L = [];
 
@@ -273,6 +306,9 @@ function buildPolicyYaml(root) {
   if (items.length) {
     L.push(`# Landmines auto-mined from ${source}. These are starting points — sharpen`);
     L.push('# each `hunt` into something a reviewer can act on with only the diff.');
+  } else if (found && found.length) {
+    L.push(`# Found ${found.join(', ')} but nothing mineable — add this repo's known traps`);
+    L.push('# here, or adopt a community pack from the Latch doctrines/ library.');
   } else {
     L.push('# No CLAUDE.md/AGENTS.md found to mine. Add this repo\'s known traps here,');
     L.push('# or adopt a community pack from the Latch doctrines/ library.');

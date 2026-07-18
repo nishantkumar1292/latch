@@ -58,6 +58,55 @@ test('init mines landmines from CLAUDE.md', () => {
   }
 });
 
+test('init follows a CLAUDE.md → AGENTS.md import and mines the imported file', () => {
+  // The Claude Code stub pattern: CLAUDE.md is a description line plus a bare
+  // `@AGENTS.md` import, with nothing mineable itself. The miner must fall
+  // through to AGENTS.md rather than stopping at the first file that exists.
+  const claude = ['One-line project description that is not a bullet.', '', '@AGENTS.md'].join('\n');
+  const agents = [
+    '# AGENTS.md',
+    '',
+    '## Traps',
+    '',
+    '- Migrations are keyed by numeric prefix and collide silently across branches.',
+    '- Never send any child data off the device; the server accepts none by construction.',
+  ].join('\n');
+  const dir = makeRepo({ 'CLAUDE.md': claude, 'AGENTS.md': agents });
+  try {
+    const r = runLatch(['init'], dir);
+    assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+    const policy = read(dir, '.latch/policy.yml');
+    // named the right source (the import chain), not just CLAUDE.md
+    assert.match(policy, /auto-mined from CLAUDE\.md → AGENTS\.md/);
+    // real bullets from the imported file made it in
+    assert.match(policy, /Migrations are keyed by numeric prefix/);
+    assert.match(policy, /Never send any child data off the device/);
+    // and it must NOT falsely claim nothing was found
+    assert.doesNotMatch(policy, /No CLAUDE\.md\/AGENTS\.md found/);
+    assert.doesNotMatch(policy, /landmines: \[\]/);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('init reports found-but-nothing-mineable when a file exists but is empty', () => {
+  // CLAUDE.md exists but carries no mineable bullets, and there is no AGENTS.md.
+  // The policy must distinguish this from "no file found at all".
+  const claude = ['# Notes', '', 'Just some prose, no bullet points here.', ''].join('\n');
+  const dir = makeRepo({ 'CLAUDE.md': claude });
+  try {
+    const r = runLatch(['init'], dir);
+    assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+    const policy = read(dir, '.latch/policy.yml');
+    assert.match(policy, /Found CLAUDE\.md but nothing mineable/);
+    assert.match(policy, /landmines: \[\]/);
+    // must NOT claim no file was found — the file exists
+    assert.doesNotMatch(policy, /No CLAUDE\.md\/AGENTS\.md found/);
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test('init infers checks from package.json scripts', () => {
   const dir = makeRepo({
     'package.json': JSON.stringify({
