@@ -1,0 +1,115 @@
+# .latch/policy.yml — Latch's per-repo review policy (REFERENCE / fully commented)
+#
+# This is the doctrine made configurable. Latch's review half reads this file
+# FIRST, before the diff, and the fix half reads its `checks:` to know what to
+# run. It is plain YAML, committed to your repo, read locally with no network
+# fetch. `latch init` seeds a smaller version of this by mining your repo; this
+# file documents every key you can add.
+#
+# The generic doctrine (falsify the PR's claims, distrust same-commit goldens,
+# every contract needs a producer AND a consumer, merge the default branch first,
+# prompt-injection hardening) is built into the workflow and always applies. This
+# file ADDS your repo's specifics on top.
+
+# Schema version of this policy file. Bump only if the shape below changes.
+version: 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# doctrine: — extra review rules appended to the generic doctrine, specific to
+# this codebase. Free-form imperative lines. Write them as things a reviewer
+# DOES, not vague values. Optional.
+# ─────────────────────────────────────────────────────────────────────────────
+doctrine:
+  - Treat any change to the public API surface as a compatibility claim to
+    falsify against the last released version.
+  - The admin preview is the visual source of truth for shared UI; flag any
+    place a client renders behaviour the preview does not model, or vice versa.
+  - Never approve a stacked PR — every PR's base must be the default branch.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# landmines: — this repo's known traps, the "green CI but wrong" class. Each is
+# something the reviewer must actively HUNT for in the diff. Optional but this is
+# where most of the value is. Adopt community packs from the `doctrines/` library
+# by copying their entries in here.
+#
+# Per landmine:
+#   id       — short stable slug (recommended; lets you reference it in replies)
+#   summary  — REQUIRED. What the trap is, in a sentence or two.
+#   hunt     — REQUIRED. How the reviewer looks for it in a diff. Must be
+#              concrete and diff-local: actionable with only the PR + the repo.
+#   severity — one of: blocking | warn | nit (recommended; defaults to warn)
+# ─────────────────────────────────────────────────────────────────────────────
+landmines:
+  - id: migration-prefix-collision
+    summary: >-
+      Database migrations are keyed by numeric prefix. Two branches can add the
+      same number under different filenames — git merges both silently and the
+      service dies at boot with a version mismatch. CI never catches it because
+      PR jobs run against the merge-base.
+    hunt: >-
+      For every migration file this PR adds, compare its numeric prefix against
+      the highest prefix on the default branch AND every other open PR/branch.
+      Any collision is blocking; the fix is to renumber above whichever lands
+      first.
+    severity: blocking
+
+  - id: embed-without-build-copy
+    summary: >-
+      A repo file embedded at compile time (e.g. include_str! / go:embed) needs a
+      matching COPY in the release Dockerfile. The workspace build passes without
+      it; only the release image build fails.
+    hunt: >-
+      For every newly embedded repo file, grep the Dockerfile(s) for a COPY that
+      brings it into the image. Missing COPY is blocking.
+    severity: blocking
+
+  - id: unrandomized-answer-position
+    summary: >-
+      Any content with selectable answer choices must randomize the correct
+      answer's position. Sorted choices park the answer in a fixed slot and the
+      user learns to tap that slot — defeating the exercise. (This was reported
+      by a real user.)
+    hunt: >-
+      For any new/changed answer-bearing content, verify the correct answer's
+      position is shuffled at creation AND at render. A stable position is
+      blocking.
+    severity: blocking
+
+  - id: sensitive-data-in-logs
+    summary: >-
+      Secrets, credentials, tokens, or personal data must never be written to
+      logs, error messages, or third-party telemetry. The code compiles and the
+      tests pass, but the leak is permanent once it ships.
+    hunt: >-
+      For any new log line, error payload, analytics/telemetry call, or crash
+      report this PR adds, verify it carries no secret, token, or personal data.
+      Anything that forwards such a value off the process is blocking.
+    severity: blocking
+
+# ─────────────────────────────────────────────────────────────────────────────
+# checks: — the commands that constitute this repo's real gate, keyed by a path
+# glob. The REVIEW runs the ones matching the PR's changed paths (after merging
+# the default branch) to falsify "it's under test"; the FIXER runs the matching
+# ones after making a change and keeps a fix only if they pass.
+#
+# Shape: <glob>: <shell command run from the repo root>.
+# Globs are matched against changed file paths. If a command's toolchain is not
+# installed on the runner, Latch makes the fix anyway and says so in-thread — it
+# never claims a check it could not run. Keep commands non-interactive and CI-safe.
+# ─────────────────────────────────────────────────────────────────────────────
+checks:
+  "services/**/*.rs": "cd services && cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test"
+  "apps/web/**": "cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test && npm run build"
+  "**/*.py": "ruff check . && pytest -q"
+  "**/*.go": "go vet ./... && go test ./..."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# merge_posture: — documentation of your intended gate posture. Latch NEVER
+# merges regardless of this; it records intent for humans reading the policy.
+#   converge-only   — (default) the loop converges and stops; a human merges.
+#   auto-merge-hint — you have enabled GitHub native auto-merge yourself; Latch's
+#                     green latch/merge-gate check can satisfy a required check.
+# The latch/merge-gate commit status is NON-BLOCKING until you mark it required
+# in branch protection — do that only after you trust its false-positive rate.
+# ─────────────────────────────────────────────────────────────────────────────
+merge_posture: converge-only
