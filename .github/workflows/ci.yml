@@ -1,0 +1,43 @@
+name: CI
+
+# CI for the Latch repo itself: run the CLI's black-box tests and prove both
+# workflow TEMPLATES are parseable YAML before they ever ship to a customer repo.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: CLI tests
+        # Shell-expanded glob (not a bare directory): `node --test <dir>` is
+        # broken on Node >= 21, which treats a positional path as a glob and a
+        # bare directory as a script. The expanded file list works on all Node
+        # >= 18 and discovers exactly the same tests.
+        run: node --test cli/test/*.test.js
+
+      - name: Workflow templates are valid YAML
+        # PyYAML is preinstalled on ubuntu-latest runners.
+        run: |
+          python3 - <<'PY'
+          import yaml
+          for f in ("workflows/latch-review.yml", "workflows/latch-fix.yml"):
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+              print(f"ok: {f}")
+          PY
