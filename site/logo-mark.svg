@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-labelledby="title">
+  <title id="title">Latch</title>
+  <path d="M10.5 5.5h-4v21h4M21.5 5.5h4v6M25.5 20.5v6h-4" stroke="#6175F3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="8.5" y="14" width="12.75" height="4" rx="2" fill="#6175F3"/>
+  <circle cx="23.5" cy="16" r="3.75" fill="#E8952F"/>
+</svg>

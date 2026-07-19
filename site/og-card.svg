@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <!-- Quick Look renders thumbnails to a square. The social card lives in the
+       centered 1200×630 band, which is cropped to the final PNG after render. -->
+  <rect width="1200" height="1200" fill="#0C111A"/>
+  <g transform="translate(0 285)">
+    <rect width="1200" height="630" fill="#0C111A"/>
+    <rect width="1200" height="8" fill="#7183FF"/>
+
+    <g transform="translate(66 42)">
+      <g transform="scale(1.0625)">
+        <path d="M10.5 5.5h-4v21h4M21.5 5.5h4v6M25.5 20.5v6h-4" fill="none" stroke="#7183FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="8.5" y="14" width="12.75" height="4" rx="2" fill="#7183FF"/>
+        <circle cx="23.5" cy="16" r="3.75" fill="#F1A83D"/>
+      </g>
+      <text x="46" y="27" fill="#EEF2F8" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="700">Latch</text>
+    </g>
+    <text x="1134" y="68" text-anchor="end" fill="#8993A4" font-family="Menlo, Consolas, monospace" font-size="15" font-weight="700">latchgate.dev</text>
+
+    <text x="66" y="129" fill="#8993A4" font-family="Menlo, Consolas, monospace" font-size="14" font-weight="700" letter-spacing="3">INDEPENDENT PR REVIEW · OPEN SOURCE · HUMAN MERGES</text>
+    <text x="62" y="211" fill="#F2F5FA" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="67" font-weight="900" letter-spacing="-3">Your agent wrote the PR.</text>
+    <text x="62" y="288" fill="#F2F5FA" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="67" font-weight="900" letter-spacing="-3">Latch tries to</text>
+    <text x="493" y="288" fill="#F06A6A" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="67" font-weight="900" letter-spacing="-3">break it.</text>
+    <text x="66" y="339" fill="#B5BECC" font-family="Arial, Helvetica, sans-serif" font-size="21">Reviewer attacks. Fixer patches—or fights back. Re-review stops for you.</text>
+
+    <g transform="translate(66 376)">
+      <rect width="1068" height="78" rx="12" fill="#121824" stroke="#3B303B"/>
+      <text x="20" y="31" fill="#F06A6A" font-family="Menlo, Consolas, monospace" font-size="13" font-weight="700">REVIEWER</text>
+      <text x="126" y="31" fill="#EEF2F8" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">Green CI missed this.</text>
+      <text x="126" y="57" fill="#B5BECC" font-family="Arial, Helvetica, sans-serif" font-size="17">The correct answer is always the middle tile. → DO-NOT-MERGE</text>
+    </g>
+
+    <g transform="translate(66 466)">
+      <rect width="1068" height="78" rx="12" fill="#121824" stroke="#6C532B"/>
+      <text x="20" y="31" fill="#F1A83D" font-family="Menlo, Consolas, monospace" font-size="13" font-weight="700">FIXER</text>
+      <text x="126" y="31" fill="#EEF2F8" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">Declined.</text>
+      <text x="213" y="31" fill="#B5BECC" font-family="Arial, Helvetica, sans-serif" font-size="17">A fixed seed restores the pattern.</text>
+      <text x="126" y="57" fill="#F1A83D" font-family="Arial, Helvetica, sans-serif" font-size="17">Leaving this open for a human.</text>
+      <text x="1038" y="48" text-anchor="end" fill="#35C17B" font-family="Menlo, Consolas, monospace" font-size="14" font-weight="700">1 fixed · 1 open for you</text>
+    </g>
+
+    <text x="66" y="594" fill="#8993A4" font-family="Menlo, Consolas, monospace" font-size="14">NO NEW SUBSCRIPTION · USE YOUR CLAUDE PLAN</text>
+    <text x="1134" y="594" text-anchor="end" fill="#EEF2F8" font-family="Menlo, Consolas, monospace" font-size="14" font-weight="700">AUTOMATIC ON PR OPEN</text>
+  </g>
+</svg>
