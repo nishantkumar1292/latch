@@ -1,77 +1,37 @@
 # Contributing to Latch
 
-Thank you for helping build the independent merge gate. The single most valuable
-contribution you can make is a **doctrine or landmine pack** — read on.
+Contributions to the CLI, workflows, documentation, and review doctrine are
+welcome.
 
-## The headline: contribute doctrine / landmine packs
+## Doctrine and landmine packs
 
-Features are copyable; a growing, community-contributed corpus of *how to catch the
-bugs green CI can't see* is not. **The doctrine library is Latch's moat.** Every
-falsification tactic and repo-landmine pattern you contribute compounds an asset that
-lives in the policy, not in the model — and that a funded incumbent cannot clone in a
-quarter.
+A doctrine tactic describes a general review heuristic. A landmine describes a
+specific failure pattern that ordinary CI can miss. Good rules:
 
-Two kinds of contribution:
+- come from a real defect or near miss;
+- name a concrete failure scenario;
+- tell the reviewer how to find it in a diff; and
+- avoid secrets or company-identifying details.
 
-1. **Doctrine tactics** — general, model-agnostic review heuristics that catch a
-   *class* of green-CI-but-wrong defect. The founding examples live in
-   [`doctrines/skeptical-senior-engineer.md`](./doctrines/skeptical-senior-engineer.md):
-   - treat the PR description as **claims to falsify**, not context to absorb;
-   - **distrust golden/snapshot tests regenerated in the same commit** as the code
-     they pin — they prove determinism, not correctness;
-   - every new field, endpoint, or event needs a **producer *and* a consumer** — grep
-     both ends of every new contract.
+Start with [`doctrines/skeptical-senior-engineer.md`](./doctrines/skeptical-senior-engineer.md)
+and [`policy/examples/policy.yml`](./policy/examples/policy.yml).
 
-   A good new tactic names the bug class, explains why CI misses it, and gives a
-   concrete falsification move.
+## Required invariants
 
-2. **Landmine packs** — repo- or stack-specific traps encoded as policy. The
-   archetype is the true **middle-tile bug**: a generated math drill sorted its answer
-   choices so the correct answer was always the middle tile, and a five-year-old
-   learned to just tap the middle. The landmine is "any content with selectable answer
-   choices must randomize answer position at creation *and* at render." Others from the
-   source deployment: silent migration-prefix collisions across branches;
-   `include_str!` of a repo file needs a matching Dockerfile `COPY`; new content
-   engines must land disabled. A pack pairs the trap with the check that catches it.
+- Latch never merges a pull request.
+- The fixer never edits `.github/workflows/` or `.latch/`.
+- Reviewer and fixer identities remain separate.
+- Fix cycles remain bounded and unresolved work goes to a human.
 
-Contribute a pack as a policy fragment (see
-[`policy/examples/policy.yml`](./policy/examples/policy.yml)) and/or a doctrine entry,
-with a one-paragraph story of the real defect it prevents. Real bugs beat
-hypotheticals — the middle-tile story carries because it actually happened.
+## Development
 
-## Non-negotiables
+- Run `npm test` after CLI or workflow-template changes.
+- Validate workflow YAML after changing `workflows/latch-*.yml`.
+- Keep `latch init` idempotent.
+- The site is static and has no build step.
 
-Any contribution must preserve the invariants that make Latch trustworthy. PRs that
-weaken these will be declined:
+Use lowercase imperative commit messages and American English. Open each pull
+request from the latest `origin/master` with one focused change.
 
-- **The loop never merges.** A human always performs the merge. Do not add an
-  auto-merge default.
-- **The anti-tamper guard stays.** The fixer must never edit `.github/workflows/` or
-  the policy file.
-- **Identity separation and the recursion guard stay.** Reviewer and fixer are
-  distinct identities; the fix push must not self-trigger the loop.
-- **Honesty in demos and claims.** No invented metrics or uncited market stats; keep
-  the model-independence knob and the escaped-bug measurement real.
-
-## Dev setup
-
-- **CLI** (`cli/bin/latch.js`): Node. Run the CLI tests; `latch init` must
-  idempotently scaffold `workflows/` + `.latch/policy.yml` into a target repo.
-- **Workflows** (`workflows/latch-*.yml`): validate the YAML (e.g. `actionlint`) and
-  rehearse a full loop on a throwaway PR — the `pull_request_review` trigger only
-  takes effect once the workflow is on the default branch, so it cannot fully
-  self-test from its own PR.
-- **Site:** static; no build step.
-
-## Conventions
-
-- Commits: **lowercase, imperative, no mention of AI**. American English.
-- Every PR branches from the latest `origin/master` and carries **one** change.
-  **No stacked PRs** — never set a PR base to anything but `master`. Never force-push
-  `master`.
-
-## License of contributions
-
-By contributing you agree your contribution is licensed under the project's
-[FSL-1.1-Apache-2.0](./LICENSE.md). No separate CLA is required — the license text
-does the work.
+By contributing, you agree that your contribution is licensed under
+[FSL-1.1-Apache-2.0](./LICENSE.md).

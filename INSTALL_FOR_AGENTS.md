@@ -17,7 +17,7 @@ hand back with the exact commands for them to run.
 1. **Install the workflows and policy** from the repo root:
 
    ```sh
-   npx github:nishantkumar1292/latch init
+   npx @nishantkumar1292/latch init
    ```
 
    This copies `.github/workflows/latch-review.yml` and
@@ -26,7 +26,9 @@ hand back with the exact commands for them to run.
    manifests). It refuses to overwrite existing files without `--force`.
 
    - Prefer a subscription token? That is the default (`--auth oauth`).
-   - Using a metered API key instead? `npx github:nishantkumar1292/latch init --auth api-key`.
+   - Using a metered API key instead? `npx @nishantkumar1292/latch init --auth api-key`.
+   - If npm is unavailable, the direct GitHub fallback is
+     `npx github:nishantkumar1292/latch init`.
 
 2. **Review the seeded policy.** Open `.latch/policy.yml` and sharpen it: make each
    mined landmine's `hunt` concrete, confirm the inferred `checks` are the repo's
@@ -44,7 +46,7 @@ hand back with the exact commands for them to run.
 4. **Verify** the install:
 
    ```sh
-   npx github:nishantkumar1292/latch doctor
+   npx @nishantkumar1292/latch doctor
    ```
 
    `doctor` will report the two human steps below as unverifiable warnings — that
@@ -87,14 +89,14 @@ false-positive rate.
 ## Copy-paste prompt for a human to give their agent
 
 > Install Latch (the independent merge gate) in this repository. Run
-> `npx github:nishantkumar1292/latch init`, then open `.latch/policy.yml` and
+> `npx @nishantkumar1292/latch init`, then open `.latch/policy.yml` and
 > tighten it for this repo — make each landmine's `hunt` concrete and confirm the
 > inferred `checks` are our real CI commands. Commit the three files it created
 > (`.github/workflows/latch-review.yml`, `.github/workflows/latch-fix.yml`,
 > `.latch/policy.yml`). Do **not** touch any token or secret: when you are done,
 > print the exact commands I need to run to install the Claude GitHub App and set
 > the repo secret, and stop there. Finally, run
-> `npx github:nishantkumar1292/latch doctor` and show me the output.
+> `npx @nishantkumar1292/latch doctor` and show me the output.
 
 ---
 

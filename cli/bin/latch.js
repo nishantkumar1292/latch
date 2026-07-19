@@ -18,8 +18,9 @@ const readline = require('readline');
 
 // ── package layout ──────────────────────────────────────────────────────────
 // bin lives at <pkg>/cli/bin/latch.js, so the package root is two levels up.
-// This resolves correctly under `npm install` (node_modules/latch-gate/...) and
-// under `npx github:nishantkumar1292/latch` (a clone of the repo).
+// This resolves correctly under `npm install`
+// (node_modules/@nishantkumar1292/latch/...) and under
+// `npx github:nishantkumar1292/latch` (a clone of the repo).
 const PKG_ROOT = path.resolve(__dirname, '..', '..');
 const TEMPLATE_WORKFLOWS = {
   'latch-review.yml': path.join(PKG_ROOT, 'workflows', 'latch-review.yml'),

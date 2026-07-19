@@ -21,11 +21,9 @@ a fix before any public disclosure.
 
 ## What Latch is, for threat-modeling
 
-In the **OSS self-hosted mode**, Latch is two GitHub Actions workflows plus a policy
-file that run in **your** repository, on **your** `CLAUDE_CODE_OAUTH_TOKEN`. There is
-no Latch-operated server in that loop. The hosted GitHub App (phase 2, not built) will
-run the same loop on our infrastructure; the threat model below notes where that
-differs.
+Latch is two GitHub Actions workflows plus a policy file that run in **your**
+repository, on **your** `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. There is
+no Latch-operated server in that loop.
 
 ## Threat model (in brief)
 
@@ -66,10 +64,7 @@ The loop pushes commits and posts reviews.
   unboundedly. Every hop is instead an **explicit, auditable** `workflow_dispatch`
   run.
 - **What it does not guarantee.** The workflow's `GITHUB_TOKEN` needs `contents:
-  write` to push fixes; scope your token and branch rules accordingly. In the hosted
-  App, an installation token is per-repo and short-lived, and the same identity
-  separation applies — but a hosted app pushing to many repos is a larger surface, so
-  the hosted default is **suggested changes a human applies**, not silent pushes.
+  write` to push fixes; scope your token and branch rules accordingly.
 
 ### 4. Runaway cost / denial of wallet
 
@@ -83,8 +78,7 @@ The loop makes model calls on your key.
 
 **Guarantees:** the loop never merges; it never edits the workflows or policy that
 govern it; nothing self-approves; the automation cannot self-trigger; it is bounded
-and escalates to a human; and in self-hosted mode your code never leaves your
-Actions.
+and escalates to a human; and your code never leaves your Actions.
 
 **Does not guarantee:** perfect resistance to prompt injection, correctness of any
 individual verdict, or safety against a human with write access who removes the

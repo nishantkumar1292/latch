@@ -1,5 +1,5 @@
 {
-  "name": "latch-gate",
+  "name": "@nishantkumar1292/latch",
   "version": "0.1.0",
   "description": "The independent merge gate for the agent era — a bounded review⇄fix loop that converges any pull request to mergeable, then stops. A human always merges.",
   "keywords": [
