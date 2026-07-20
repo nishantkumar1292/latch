@@ -52,7 +52,7 @@ Claude errors or returns no verdict, run the installer with its setup hint and
 complete the printed human-only commands:
 
 ```sh
-npx @nishantkumar1292/latch init --codex-fallback
+npx github:nishantkumar1292/latch init --codex-fallback
 codex -c 'cli_auth_credentials_store="file"' login
 gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json
 gh variable set LATCH_CODEX_FALLBACK --body true

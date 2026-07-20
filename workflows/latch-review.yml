@@ -112,6 +112,7 @@ jobs:
     outputs:
       codex_needs_fix: ${{ steps.post_codex.outputs.needs_fix }}
       pr: ${{ steps.post_codex.outputs.pr }}
+      head_ref: ${{ steps.pr_guard.outputs.head_ref }}
     permissions:
       contents: read
       pull-requests: write
@@ -131,17 +132,24 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', github.event.inputs.pr) || '' }}
 
       - name: Verify same-repository PR
+        id: pr_guard
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
         run: |
           set -euo pipefail
-          head_repo=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .head.repo.full_name)
-          draft=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .draft)
+          case "$PR" in
+            ''|*[!0-9]*) echo "::error::PR must be a positive integer."; exit 1 ;;
+          esac
+          pr_data=$(gh api "repos/${{ github.repository }}/pulls/$PR")
+          head_repo=$(jq -r .head.repo.full_name <<<"$pr_data")
+          draft=$(jq -r .draft <<<"$pr_data")
           if [ "$head_repo" != "${{ github.repository }}" ] || [ "$draft" = "true" ]; then
             echo "::error::Latch does not expose reviewer credentials to fork PRs or drafts."
             exit 1
           fi
+          echo "head_sha=$(jq -r .head.sha <<<"$pr_data")" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r .head.ref <<<"$pr_data")" >> "$GITHUB_OUTPUT"
 
       # A workflow_dispatch event carries no pull_request in its payload, and
       # claude-code-action derives the PR it comments on (the MCP inline-comment
@@ -431,6 +439,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUTPUT: ${{ runner.temp }}/latch-codex-review.json
           PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
+          EXPECTED_HEAD_SHA: ${{ steps.pr_guard.outputs.head_sha }}
         run: |
           set -euo pipefail
           jq -e . "$OUTPUT" >/dev/null
@@ -442,7 +451,12 @@ jobs:
             exit 1
           fi
 
-          sha=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .head.sha)
+          current_sha=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .head.sha)
+          if [ "$current_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::PR head moved during Codex review; refusing to publish stale findings."
+            exit 1
+          fi
+          sha="$EXPECTED_HEAD_SHA"
           while IFS= read -r finding; do
             path=$(jq -r .path <<<"$finding")
             line=$(jq -r .line <<<"$finding")
@@ -551,15 +565,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review.outputs.pr }}
+          HEAD_REF: ${{ needs.review.outputs.head_ref }}
         run: |
           set -euo pipefail
           # Dispatch the workflow definition from the PR head. During a Latch
           # workflow upgrade, the default-branch definition may not know about
           # newer inputs yet (GitHub otherwise rejects them with HTTP 422).
-          head_ref=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .head.ref)
           gh workflow run latch-fix.yml \
             --repo "${{ github.repository }}" \
-            --ref "$head_ref" \
+            --ref "$HEAD_REF" \
             -f pr="$PR" \
             -f reviewer=codex
 
