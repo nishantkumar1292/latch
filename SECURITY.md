@@ -22,8 +22,9 @@ a fix before any public disclosure.
 ## What Latch is, for threat-modeling
 
 Latch is two GitHub Actions workflows plus a policy file that run in **your**
-repository, on **your** `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. There is
-no Latch-operated server in that loop.
+repository, on **your** `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. An
+optional, disabled-by-default fallback can also use a Codex subscription through
+`CODEX_AUTH_JSON`. There is no Latch-operated server in that loop.
 
 ## Threat model (in brief)
 
@@ -41,7 +42,29 @@ are fed to the reviewer and fixer.
   Keep the verdict **non-blocking by default** so a manipulated verdict cannot block
   or force-ship a PR on its own.
 
-### 2. Tampered workflows / self-modifying loop
+### 2. Public repositories and provider credentials
+
+GitHub masks secret values in logs and does not pass Actions secrets to workflows
+triggered from forks. That is necessary, but it does not make a reusable model
+credential safe against every PR: code and comments from a same-repository branch
+are still untrusted input, and anyone who can push such a branch can influence what
+the reviewer reads or runs.
+
+- **Design guarantee.** Every automatic, manual, and on-demand Latch entry point
+  verifies that the PR is non-draft and its head repository exactly matches the base
+  repository before a provider credential is loaded. Fork PRs therefore never reach
+  Claude or Codex. Codex auth is reconstructed with mode `0600` under
+  `RUNNER_TEMP`, token strings are registered with GitHub's masker, the model runs in
+  a Codex sandbox without a GitHub token, and the temporary auth directory is removed
+  after the attempt.
+- **What it does not guarantee.** `CODEX_AUTH_JSON` is a reusable subscription
+  credential, not a single-run token. A prompt injection from a same-repository
+  branch can still try to exfiltrate it through model output, executed project tools,
+  or another side channel. For that reason the fallback is opt-in through
+  `LATCH_CODEX_FALLBACK=true`. Enable it only when same-repository branch writers are
+  trusted, never commit `auth.json`, and rotate the secret when access changes.
+
+### 3. Tampered workflows / self-modifying loop
 
 An agent-authored PR could try to edit the very workflows or policy that govern the
 loop, or the loop could rewrite its own rules.
@@ -53,7 +76,7 @@ loop, or the loop could rewrite its own rules.
   branch protection / CODEOWNERS as you would any privileged config; the guard stops
   the *automation* from editing them, not a human with write access.
 
-### 3. Token scope and identity separation
+### 4. Token scope and identity separation
 
 The loop pushes commits and posts reviews.
 
@@ -66,7 +89,7 @@ The loop pushes commits and posts reviews.
 - **What it does not guarantee.** The workflow's `GITHUB_TOKEN` needs `contents:
   write` to push fixes; scope your token and branch rules accordingly.
 
-### 4. Runaway cost / denial of wallet
+### 5. Runaway cost / denial of wallet
 
 The loop makes model calls on your key.
 
@@ -78,7 +101,9 @@ The loop makes model calls on your key.
 
 **Guarantees:** the loop never merges; it never edits the workflows or policy that
 govern it; nothing self-approves; the automation cannot self-trigger; it is bounded
-and escalates to a human; and your code never leaves your Actions.
+and escalates to a human; and there is no Latch-operated server in the self-hosted
+path. Repository context goes directly from your Actions runner to the provider you
+configured (Anthropic and, when enabled, OpenAI).
 
 **Does not guarantee:** perfect resistance to prompt injection, correctness of any
 individual verdict, or safety against a human with write access who removes the

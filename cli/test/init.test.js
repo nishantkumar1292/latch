@@ -29,6 +29,24 @@ test('init creates both workflows and a policy file', () => {
   }
 });
 
+test('init prints Codex subscription fallback setup only when requested', () => {
+  const dir = makeRepo({});
+  try {
+    const defaultRun = runLatch(['init'], dir);
+    assert.strictEqual(defaultRun.status, 0, defaultRun.stderr + defaultRun.stdout);
+    assert.doesNotMatch(defaultRun.stdout, /CODEX_AUTH_JSON/);
+
+    const fallbackRun = runLatch(['init', '--codex-fallback'], dir);
+    assert.strictEqual(fallbackRun.status, 0, fallbackRun.stderr + fallbackRun.stdout);
+    assert.match(fallbackRun.stdout, /codex login/);
+    assert.match(fallbackRun.stdout, /gh secret set CODEX_AUTH_JSON < ~\/.codex\/auth\.json/);
+    assert.match(fallbackRun.stdout, /gh variable set LATCH_CODEX_FALLBACK --body true/);
+    assert.match(fallbackRun.stdout, /Never commit auth\.json/);
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test('init mines landmines from CLAUDE.md', () => {
   const claude = [
     '# Project context',

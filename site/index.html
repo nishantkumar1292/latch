@@ -141,6 +141,13 @@
     .copy-button.copied{color:#75d5a4}
     .setup-note{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:13px 14px;border:1px solid #dce3ff;border-radius:9px;background:var(--blue-wash);color:#3f4a68;font-size:.82rem}
     .setup-note svg{width:16px;height:16px;flex:none;margin-top:2px;color:var(--blue)}
+    .provider-rail{display:flex;align-items:stretch;gap:10px;margin-top:28px}
+    .provider-node{flex:1;display:flex;align-items:center;gap:11px;padding:13px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+    .provider-node::before{content:"";width:9px;height:9px;flex:none;border-radius:50%;background:var(--blue);box-shadow:0 0 0 4px var(--blue-wash)}
+    .provider-node.fallback::before{background:#7857d6;box-shadow:0 0 0 4px #f1edff}
+    .provider-node.trusted::before{background:var(--pass);box-shadow:0 0 0 4px var(--pass-wash)}
+    .provider-node strong{display:block;font-size:.78rem}.provider-node span{display:block;margin-top:1px;color:var(--muted);font-family:var(--mono);font-size:.57rem}
+    .provider-arrow{align-self:center;color:#a1a6b0;font-family:var(--mono);font-size:.72rem}
 
     .agent-grid{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:26px;align-items:start;margin-top:38px}
     .agent-notes{padding-top:5px}
@@ -247,6 +254,7 @@
       .command code{padding-inline:11px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font-size:.66rem}
       .copy-button{width:54px}
       .setup-note{margin-inline:-2px}
+      .provider-rail{display:grid;grid-template-columns:1fr;gap:7px}.provider-arrow{transform:rotate(90deg);justify-self:center;line-height:1}
       .effect-row{grid-template-columns:41px minmax(0,1fr);gap:14px}
       .capture{grid-column:1 / -1;margin-left:0}
       .effects-list::before{left:20px;bottom:150px}
@@ -289,7 +297,7 @@
       <div class="wrap hero-inner">
         <p class="eyebrow">Open source · runs in GitHub Actions</p>
         <h1>Inspect every agent-written PR.</h1>
-        <p class="hero-copy">Latch gives the pull request to an independent reviewer, lets a separate fixer repair real defects, reviews the result again, and stops for you to merge.</p>
+        <p class="hero-copy">Claude reviews first. If it cannot finish, an optional Codex subscription fallback takes the same independent pass. A separate fixer repairs real defects; you still merge.</p>
         <div class="hero-actions">
           <a class="button primary" href="#install">Install Latch</a>
           <a class="button" href="https://github.com/nishantkumar1292/latch">
@@ -304,11 +312,12 @@
             <span class="terminal-title">~/your-repository</span>
           </div>
           <div class="terminal-body">
-            <div><span class="prompt">$</span> npx @nishantkumar1292/latch init</div>
+            <div><span class="prompt">$</span> npx @nishantkumar1292/latch init --codex-fallback</div>
             <div class="dim">created .github/workflows/latch-review.yml</div>
             <div class="dim">created .github/workflows/latch-fix.yml</div>
             <div class="dim">created .latch/policy.yml</div>
-            <div class="ok">✓ Latch is installed. Complete the two human-only steps.</div>
+            <div class="dim">provider Claude → Codex fallback (opt-in)</div>
+            <div class="ok">✓ Latch is installed. Complete the human-only setup.</div>
           </div>
         </figure>
       </div>
@@ -330,12 +339,20 @@
         <section class="doc-section" id="install" data-section>
           <p class="section-kicker">Quickstart</p>
           <h2>Get started with Latch</h2>
-          <p class="section-lede">Run the installer once in a repository. It adds two workflows and a review policy; your credentials stay in GitHub Actions secrets.</p>
+          <p class="section-lede">Run the installer once in a repository. It adds two workflows and a review policy; Claude stays primary and Codex fallback is explicit, configurable, and off by default.</p>
+
+          <div class="provider-rail" aria-label="Review provider fallback sequence">
+            <div class="provider-node"><div><strong>Claude</strong><span>primary review + fix</span></div></div>
+            <span class="provider-arrow" aria-hidden="true">→</span>
+            <div class="provider-node fallback"><div><strong>Codex</strong><span>only after Claude fails</span></div></div>
+            <span class="provider-arrow" aria-hidden="true">→</span>
+            <div class="provider-node trusted"><div><strong>Trusted workflow</strong><span>validates, posts, stops</span></div></div>
+          </div>
 
           <div class="setup-card">
             <div class="setup-head">
               <strong>One-time setup per repository</strong>
-              <span>Node.js 18+, GitHub CLI, and a Claude subscription or Anthropic API key.</span>
+              <span>Node.js 18+, GitHub CLI, Claude access, and optionally a Codex subscription.</span>
             </div>
             <ol class="setup-steps">
               <li class="setup-step">
@@ -343,8 +360,8 @@
                   <h3>Install the workflows</h3>
                   <p>Run this from the root of the repository you want reviewed.</p>
                   <div class="command">
-                    <code><span class="shell-prompt">$</span>npx @nishantkumar1292/latch init</code>
-                    <button class="copy-button" type="button" data-copy="npx @nishantkumar1292/latch init" aria-label="Copy install command">Copy</button>
+                    <code><span class="shell-prompt">$</span>npx @nishantkumar1292/latch init --codex-fallback</code>
+                    <button class="copy-button" type="button" data-copy="npx @nishantkumar1292/latch init --codex-fallback" aria-label="Copy install command">Copy</button>
                   </div>
                 </div>
               </li>
@@ -359,6 +376,20 @@
                   <div class="setup-note">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
                     <span>Use <code>ANTHROPIC_API_KEY</code> instead if you prefer metered API access. Set exactly one secret.</span>
+                  </div>
+                </div>
+              </li>
+              <li class="setup-step">
+                <div>
+                  <h3>Add Codex fallback <span class="mono" style="color:var(--muted);font-size:.68rem;font-weight:500">optional</span></h3>
+                  <p>Store a file-backed Codex login as an Actions secret, then enable the repository switch.</p>
+                  <div class="command">
+                    <code><span class="shell-prompt">$</span>codex -c 'cli_auth_credentials_store="file"' login<br><span class="shell-prompt">$</span>gh secret set CODEX_AUTH_JSON &lt; ~/.codex/auth.json<br><span class="shell-prompt">$</span>gh variable set LATCH_CODEX_FALLBACK --body true</code>
+                    <button class="copy-button" type="button" data-copy="codex -c 'cli_auth_credentials_store=&quot;file&quot;' login&#10;gh secret set CODEX_AUTH_JSON &lt; ~/.codex/auth.json&#10;gh variable set LATCH_CODEX_FALLBACK --body true" aria-label="Copy Codex fallback setup commands">Copy</button>
+                  </div>
+                  <div class="setup-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+                    <span><code>auth.json</code> is a reusable credential. Latch rejects fork and draft PRs before loading it and removes the runner copy after use. Same-repo branch writers can still influence what Codex reads; enable this only if you accept that boundary.</span>
                   </div>
                 </div>
               </li>
@@ -396,9 +427,10 @@
               <div class="prompt-head">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>
                 prompt.txt
-                <button class="copy-button" type="button" data-copy="Install Latch in this repository. Read https://raw.githubusercontent.com/nishantkumar1292/latch/master/INSTALL_FOR_AGENTS.md and follow it exactly. Do not request, read, or set any secret. Stop and give me the human-only commands when the repository changes are ready." aria-label="Copy coding agent prompt">Copy prompt</button>
+                <button class="copy-button" type="button" data-copy="Install Latch with the configurable Codex subscription fallback in this repository. Read https://raw.githubusercontent.com/nishantkumar1292/latch/master/INSTALL_FOR_AGENTS.md and follow it exactly. Do not request, read, or set any secret. Stop and give me the human-only commands when the repository changes are ready." aria-label="Copy coding agent prompt">Copy prompt</button>
               </div>
-              <pre>Install Latch in this repository. Read
+              <pre>Install Latch with the configurable Codex subscription fallback
+in this repository. Read
 <span class="accent">https://raw.githubusercontent.com/nishantkumar1292/latch/master/INSTALL_FOR_AGENTS.md</span>
 and follow it exactly. Do not request, read, or set any secret.
 Stop and give me the human-only commands when the repository
@@ -410,7 +442,7 @@ changes are ready.</pre>
         <section class="doc-section" id="effect" data-section>
           <p class="section-kicker">On the pull request</p>
           <h2>See what Latch changes</h2>
-          <p class="section-lede">Every hop stays visible in GitHub: the finding, the repair or disagreement, and the clean re-review.</p>
+          <p class="section-lede">Every hop stays visible in GitHub: the provider used, the finding, the repair or disagreement, and the clean re-review.</p>
 
           <ol class="effects-list">
             <li class="effect-row review">
@@ -418,7 +450,7 @@ changes are ready.</pre>
               <div class="effect-copy">
                 <span class="role">Review</span>
                 <h3>Find what green CI missed</h3>
-                <p>The reviewer posts a concrete failure scenario on the exact line.</p>
+                <p>Claude reviews first. If it cannot finish, Codex posts the same line-level finding with a visible fallback label.</p>
               </div>
               <figure class="capture" aria-label="Example inline GitHub review finding">
                 <div class="capture-bar"><i class="capture-dot"></i><i class="capture-dot"></i><i class="capture-dot"></i><span class="capture-url">github.com/acme/math-drills/pull/42/files</span></div>
@@ -493,10 +525,10 @@ changes are ready.</pre>
                 <h3 class="plan-name">Open source</h3>
               </div>
               <div class="plan-price"><strong>$0</strong><span>forever</span></div>
-              <p class="plan-copy">Run Latch in your own GitHub Actions with your Claude subscription token or Anthropic API key.</p>
+              <p class="plan-copy">Run Latch in your own GitHub Actions with Claude first and an optional Codex subscription fallback.</p>
               <ul class="plan-details">
                 <li>Complete review and fix loop</li>
-                <li>Your repository, runner, and credential</li>
+                <li>Configurable Claude → Codex fallback</li>
                 <li>Human always merges</li>
               </ul>
               <a class="button" href="#install">Install open source</a>
@@ -526,8 +558,9 @@ changes are ready.</pre>
           <div class="boundary-table">
             <div class="boundary-row"><strong>Human merge</strong><p>Neither workflow contains a merge step.</p></div>
             <div class="boundary-row"><strong>Anti-tamper</strong><p>The fixer skips changes to <code>.github/workflows/</code> and <code>.latch/</code>.</p></div>
+            <div class="boundary-row"><strong>Public-repo guard</strong><p>Fork and draft PRs are rejected before provider credentials load; same-repo branch writers remain inside your trust boundary.</p></div>
             <div class="boundary-row"><strong>Bounded work</strong><p>Three unsuccessful fix cycles trigger an author mention and stop.</p></div>
-            <div class="boundary-row"><strong>Your infrastructure</strong><p>The workflows run in your GitHub Actions with your configured Claude credential.</p></div>
+            <div class="boundary-row"><strong>Your infrastructure</strong><p>The workflows run in your GitHub Actions. Temporary Codex auth is removed after each fallback attempt.</p></div>
           </div>
         </section>
 
@@ -537,8 +570,8 @@ changes are ready.</pre>
             <h2>Add the independent pass.</h2>
             <p>Install once. Every new pull request enters the bounded review and fix loop automatically.</p>
             <div class="command final-command">
-              <code><span class="shell-prompt">$</span>npx @nishantkumar1292/latch init</code>
-              <button class="copy-button" type="button" data-copy="npx @nishantkumar1292/latch init" aria-label="Copy install command">Copy</button>
+              <code><span class="shell-prompt">$</span>npx @nishantkumar1292/latch init --codex-fallback</code>
+              <button class="copy-button" type="button" data-copy="npx @nishantkumar1292/latch init --codex-fallback" aria-label="Copy install command">Copy</button>
             </div>
           </div>
         </section>

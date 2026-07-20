@@ -5,7 +5,7 @@
 // GitHub repo. Zero runtime dependencies; Node >= 18.
 //
 // Commands:
-//   latch init [--auth oauth|api-key] [--force]   install the workflows + policy
+//   latch init [--auth oauth|api-key] [--codex-fallback] [--force]
 //   latch doctor                                  check the install
 //   latch uninstall [--remove-policy|--keep-policy] [--yes]
 //   latch help | --help | -h
@@ -361,6 +361,8 @@ function parseFlags(argv) {
     const a = argv[i];
     if (a === '--auth') {
       flags.auth = argv[++i];
+    } else if (a === '--codex-fallback') {
+      flags.codexFallback = true;
     } else if (a === '--force' || a === '-f') {
       flags.force = true;
     } else if (a === '--remove-policy' || a === '--purge') {
@@ -488,11 +490,22 @@ function cmdInit(flags) {
   }
   process.stdout.write('     ' + c.dim(`Latch prints these commands but never reads or stores the ${secretName} value.`) + '\n\n');
 
-  process.stdout.write(c.bold('  3. Commit the files') + ':\n');
+  let next = 3;
+  if (flags.codexFallback) {
+    process.stdout.write(c.bold(`  ${next}. Enable the Codex subscription fallback`) + ' (optional, disabled by default):\n');
+    process.stdout.write('       ' + c.cyan('codex login') + '\n');
+    process.stdout.write('       ' + c.cyan('gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json') + '\n');
+    process.stdout.write('       ' + c.cyan('gh variable set LATCH_CODEX_FALLBACK --body true') + '\n');
+    process.stdout.write('     ' + c.dim('This reusable credential is exposed only to same-repo, non-draft PR runs and') + '\n');
+    process.stdout.write('     ' + c.dim('removed from the runner after use. Never commit auth.json.') + '\n\n');
+    next++;
+  }
+
+  process.stdout.write(c.bold(`  ${next}. Commit the files`) + ':\n');
   process.stdout.write('       ' + c.cyan('git add .github/workflows/latch-review.yml .github/workflows/latch-fix.yml .latch/policy.yml') + '\n');
   process.stdout.write('       ' + c.cyan('git commit -m "add latch merge gate"') + '\n\n');
 
-  process.stdout.write(c.bold('  4. Open a PR and watch the loop') + ':\n');
+  process.stdout.write(c.bold(`  ${next + 1}. Open a PR and watch the loop`) + ':\n');
   process.stdout.write('     Latch reviews it, the fixer converges it, and it stops — a human merges.\n');
   process.stdout.write('     Note: latch-fix.yml only takes effect once it is on your DEFAULT branch\n');
   process.stdout.write('     (GitHub runs pull_request_review workflows from the default branch).\n\n');
@@ -566,6 +579,7 @@ function cmdDoctor() {
 
   // 4) secret set (best-effort via gh)
   const ghVersion = tryGh(['--version']);
+  let secretList = null;
   if (!ghVersion) {
     rows.push({
       state: 'warn',
@@ -573,15 +587,15 @@ function cmdDoctor() {
       fix: 'install gh, or ensure CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY is set as a repo secret',
     });
   } else {
-    const list = tryGh(['secret', 'list']);
-    if (list === null) {
+    secretList = tryGh(['secret', 'list']);
+    if (secretList === null) {
       rows.push({
         state: 'warn',
         label: 'auth secret set (cannot verify — gh not authenticated)',
         fix: 'run `gh auth login`, then check for CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY',
       });
-    } else if (/\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(list) || /\bANTHROPIC_API_KEY\b/.test(list)) {
-      const which = /\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(list) ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY';
+    } else if (/\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(secretList) || /\bANTHROPIC_API_KEY\b/.test(secretList)) {
+      const which = /\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(secretList) ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY';
       rows.push({ state: 'pass', label: `auth secret set (${which})`, fix: null });
     } else {
       rows.push({
@@ -593,7 +607,27 @@ function cmdDoctor() {
     }
   }
 
-  // 5) Claude GitHub App reminder (cannot verify from here)
+  // 5) optional Codex fallback switch + credential pairing (never read value)
+  if (ghVersion) {
+    const variables = tryGh(['variable', 'list']);
+    if (variables !== null) {
+      const codexEnabled = /^LATCH_CODEX_FALLBACK\s+true\b/im.test(variables);
+      if (!codexEnabled) {
+        rows.push({ state: 'pass', label: 'Codex subscription fallback disabled (default)', fix: null });
+      } else if (secretList !== null && /\bCODEX_AUTH_JSON\b/.test(secretList)) {
+        rows.push({ state: 'pass', label: 'Codex subscription fallback enabled (CODEX_AUTH_JSON set)', fix: null });
+      } else {
+        rows.push({
+          state: 'fail',
+          label: 'Codex fallback enabled but CODEX_AUTH_JSON is missing',
+          fix: 'gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json',
+        });
+        failures++;
+      }
+    }
+  }
+
+  // 6) Claude GitHub App reminder (cannot verify from here)
   rows.push({
     state: 'warn',
     label: 'Claude GitHub App installed (cannot verify — required for claude[bot])',
@@ -696,7 +730,8 @@ function usage() {
   return `${c.bold('latch')} — the independent merge gate for the agent era
 
 ${c.bold('Usage')}
-  latch init [--auth oauth|api-key] [--force]   install the review⇄fix workflows + .latch/policy.yml
+  latch init [--auth oauth|api-key] [--codex-fallback] [--force]
+                                                install workflows + .latch/policy.yml
   latch doctor                                  check the install and print remediation
   latch uninstall [--remove-policy|--keep-policy] [--yes]
   latch help                                    show this help
@@ -707,7 +742,8 @@ ${c.bold('init')}
   templates into .github/workflows/, and seeds .latch/policy.yml by mining your
   repo (landmines from CLAUDE.md/AGENTS.md; checks from your manifests). It will
   not overwrite existing files without --force, and it never touches your token —
-  it prints the commands for a human to run.
+  it prints the commands for a human to run. --codex-fallback also prints the
+  opt-in Codex subscription secret and repository-variable setup.
 
 ${c.dim('Docs: https://github.com/nishantkumar1292/latch')}
 `;

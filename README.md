@@ -13,7 +13,8 @@ result again. The loop stops when the review is clean or after three fix cycles.
 - Fixes findings it agrees with, then automatically requests another review.
 - Explains disagreements and leaves those threads open for a human decision.
 - Refuses to edit its own workflows or `.latch/policy.yml`.
-- Runs in your GitHub Actions with your Claude subscription token or API key.
+- Runs in your GitHub Actions with Claude first and an optional Codex
+  subscription fallback.
 
 ## Install
 
@@ -44,6 +45,31 @@ Verify the setup:
 npx @nishantkumar1292/latch doctor
 ```
 
+### Optional Codex subscription fallback
+
+Claude remains the primary reviewer and fixer. To let Codex take over only when
+Claude errors or returns no verdict, run the installer with its setup hint and
+complete the printed human-only commands:
+
+```sh
+npx @nishantkumar1292/latch init --codex-fallback
+codex -c 'cli_auth_credentials_store="file"' login
+gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json
+gh variable set LATCH_CODEX_FALLBACK --body true
+```
+
+The fallback is disabled by default. `LATCH_CODEX_MODEL`,
+`LATCH_CODEX_REVIEW_EFFORT`, `LATCH_CODEX_FIX_EFFORT`, and
+`LATCH_CODEX_VERSION` tune it. Latch rejects fork and draft PRs before loading
+credentials, reconstructs `auth.json` in an ephemeral runner directory, and
+removes it after Codex exits.
+
+This is an advanced trust choice: `auth.json` is a reusable subscription
+credential and the model reads same-repository PR content while it is present.
+Anyone allowed to push a branch in the repository can influence that content.
+Never commit `auth.json`; rotate the secret after signing in again or if access
+changes.
+
 The installer creates:
 
 ```text
@@ -68,7 +94,8 @@ The complete agent protocol is in
 
 ```text
 PR opened
-  → reviewer posts inline findings and a verdict
+  → Claude posts inline findings and a verdict
+      (or the visibly labelled Codex fallback does if Claude cannot finish)
   → fixer repairs real defects or explains why it disagrees
   → reviewer checks the new commit
   → clean review: Latch stops and waits for a human to merge
