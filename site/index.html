@@ -1,615 +1,641 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Latch — independent review for agent-written PRs</title>
-<meta name="description" content="Your coding agent wrote the PR. Latch reviews it automatically using the Claude subscription you already pay for, fixes real defects, and stops for a human to merge.">
-<meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#111722">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Latch — independent review for agent-written PRs</title>
+  <meta name="description" content="Install an independent review and autofix loop for agent-written pull requests. Latch reviews, repairs, re-reviews, and stops for a human to merge.">
+  <meta name="theme-color" content="#ffffff">
 
-<meta property="og:type" content="website">
-<meta property="og:title" content="Latch — your agent wrote the PR. Latch tries to break it.">
-<meta property="og:description" content="Automatic independent PR review using the Claude subscription you already pay for. Self-hosted is $0; Latch charges only if you choose hosted.">
-<meta property="og:url" content="https://latchgate.dev/">
-<meta property="og:image" content="https://latchgate.dev/og-card.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Latch: Your agent wrote the PR. Latch tries to break it.">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Latch — independent review for agent-written PRs">
-<meta name="twitter:description" content="Automatic PR review using your existing Claude subscription. No new AI bill. You decide when to merge.">
-<meta name="twitter:image" content="https://latchgate.dev/og-card.png">
-<link rel="canonical" href="https://latchgate.dev/">
-<link rel="icon" href="logo-mark.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Latch — inspect every agent-written pull request">
+  <meta property="og:description" content="Independent review, bounded autofix, and a final human merge.">
+  <meta property="og:url" content="https://latchgate.dev/">
+  <meta property="og:image" content="https://latchgate.dev/og-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Latch reviews and repairs agent-written pull requests, then stops for a human.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Latch — inspect every agent-written pull request">
+  <meta name="twitter:description" content="Independent review, bounded autofix, and a final human merge.">
+  <meta name="twitter:image" content="https://latchgate.dev/og-card.png">
 
-<style>
-*,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
-body,h1,h2,h3,p,figure,ol,ul{margin:0}
-ol,ul{padding:0;list-style:none}
-button{font:inherit;color:inherit}
-a{color:inherit;text-decoration:none}
-svg{display:block}
+  <link rel="canonical" href="https://latchgate.dev/">
+  <link rel="icon" href="logo-mark.svg" type="image/svg+xml">
 
-:root{
-  --page:#F4F6FA;
-  --surface:#FFFFFF;
-  --surface-2:#ECEFF6;
-  --ink:#111722;
-  --ink-2:#4E586A;
-  --muted:#747E90;
-  --line:#D9DFE9;
-  --brand:#4F63E9;
-  --brand-2:#3B4CC7;
-  --review:#D64B4B;
-  --fix:#4F63E9;
-  --pass:#168A55;
-  --human:#B66D05;
-  --code:#121824;
-  --code-ink:#E8ECF4;
-  --shadow:0 26px 70px -38px rgba(28,39,71,.42);
-  --display:"Avenir Next Condensed","Arial Narrow","Helvetica Neue",Arial,sans-serif;
-  --body:"Avenir Next","Segoe UI",system-ui,-apple-system,sans-serif;
-  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;
-}
-@media (prefers-color-scheme:dark){
-  :root{
-    --page:#0C111A;
-    --surface:#121824;
-    --surface-2:#181F2D;
-    --ink:#EEF2F8;
-    --ink-2:#B5BECC;
-    --muted:#7F899A;
-    --line:#263044;
-    --brand:#7183FF;
-    --brand-2:#91A0FF;
-    --review:#F06A6A;
-    --fix:#7C8DFF;
-    --pass:#35C17B;
-    --human:#F1A83D;
-    --code:#080C13;
-    --code-ink:#E8ECF4;
-    --shadow:0 30px 80px -36px rgba(0,0,0,.9);
-  }
-}
-:root[data-theme="light"]{
-  --page:#F4F6FA;--surface:#FFFFFF;--surface-2:#ECEFF6;--ink:#111722;--ink-2:#4E586A;
-  --muted:#747E90;--line:#D9DFE9;--brand:#4F63E9;--brand-2:#3B4CC7;--review:#D64B4B;
-  --fix:#4F63E9;--pass:#168A55;--human:#B66D05;--code:#121824;--code-ink:#E8ECF4;
-  --shadow:0 26px 70px -38px rgba(28,39,71,.42)
-}
-:root[data-theme="dark"]{
-  --page:#0C111A;--surface:#121824;--surface-2:#181F2D;--ink:#EEF2F8;--ink-2:#B5BECC;
-  --muted:#7F899A;--line:#263044;--brand:#7183FF;--brand-2:#91A0FF;--review:#F06A6A;
-  --fix:#7C8DFF;--pass:#35C17B;--human:#F1A83D;--code:#080C13;--code-ink:#E8ECF4;
-  --shadow:0 30px 80px -36px rgba(0,0,0,.9)
-}
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+    body,h1,h2,h3,p,pre,figure,ol,ul{margin:0}
+    ol,ul{padding:0;list-style:none}
+    button{font:inherit}
+    a{color:inherit;text-decoration:none}
+    svg,img{display:block}
 
-body{
-  min-width:0;
-  overflow-x:clip;
-  background:var(--page);
-  color:var(--ink);
-  font-family:var(--body);
-  font-size:17px;
-  line-height:1.55;
-  -webkit-font-smoothing:antialiased;
-  text-rendering:optimizeLegibility;
-}
-::selection{background:color-mix(in srgb,var(--brand) 25%,transparent)}
-:focus-visible{outline:3px solid var(--brand);outline-offset:3px;border-radius:5px}
-.wrap{width:min(1160px,calc(100% - 48px));margin-inline:auto;min-width:0}
-.mono{font-family:var(--mono)}
-.eyebrow{font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
-.section{padding:clamp(72px,10vw,128px) 0}
-.section-head{max-width:720px}
-.section-head h2{margin-top:14px}
-h2{font-family:var(--display);font-size:clamp(2.25rem,5vw,4.1rem);font-weight:800;letter-spacing:-.045em;line-height:.98;text-wrap:balance}
-h3{font-size:1.08rem;line-height:1.25;letter-spacing:-.015em}
-.lede{color:var(--ink-2);font-size:clamp(1.03rem,1.6vw,1.18rem);line-height:1.55}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:46px;padding:0 18px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-family:var(--mono);font-size:.82rem;font-weight:700;cursor:pointer;transition:transform .12s,border-color .16s,background .16s}
-.btn:hover{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 6%,var(--surface))}
-.btn:active{transform:translateY(1px)}
-.btn-primary{color:#fff;background:var(--brand);border-color:var(--brand)}
-.btn-primary:hover{background:var(--brand-2);border-color:var(--brand-2)}
-.btn svg{width:16px;height:16px}
+    :root{
+      --paper:#fcfcfd;
+      --surface:#ffffff;
+      --wash:#f5f6f9;
+      --ink:#17191d;
+      --copy:#555b66;
+      --muted:#7b818b;
+      --rule:#e5e7eb;
+      --rule-strong:#d7dae0;
+      --blue:#3157e8;
+      --blue-dark:#2344bd;
+      --blue-wash:#eef2ff;
+      --review:#b54754;
+      --review-wash:#fff5f6;
+      --fix:#3157e8;
+      --fix-wash:#f1f4ff;
+      --pass:#18794e;
+      --pass-wash:#f0faf5;
+      --amber:#9a6700;
+      --code:#151a24;
+      --code-copy:#e9edf5;
+      --display:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+      --shadow:0 24px 70px rgba(26,34,57,.09),0 2px 8px rgba(26,34,57,.05);
+    }
 
-/* Header */
-.site-header{position:sticky;top:0;z-index:30;border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent);background:color-mix(in srgb,var(--page) 88%,transparent);backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25)}
-.header-in{height:64px;display:flex;align-items:center;gap:22px}
-.brand{display:inline-flex;align-items:center;gap:9px;font-family:var(--display);font-size:1.18rem;font-weight:900;letter-spacing:-.035em;white-space:nowrap}
-.brand-mark{width:27px;height:27px;flex:none}
-.brand-frame{stroke:var(--brand)}
-.brand-bolt{fill:var(--brand)}
-.brand-release{fill:var(--human)}
-.nav{margin-left:auto;display:flex;align-items:center;gap:4px;min-width:0}
-.nav a{padding:8px 10px;border-radius:8px;font-family:var(--mono);font-size:.78rem;color:var(--ink-2);white-space:nowrap}
-.nav a:hover{color:var(--ink);background:var(--surface-2)}
-.theme-button{width:38px;height:38px;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--ink-2);cursor:pointer}
-.theme-button:hover{background:var(--surface-2);color:var(--ink)}
-.theme-button svg{width:18px;height:18px}
-.sun{display:none}
-:root[data-theme="dark"] .sun{display:block}
-:root[data-theme="dark"] .moon{display:none}
-@media (prefers-color-scheme:dark){:root:not([data-theme]) .sun{display:block}:root:not([data-theme]) .moon{display:none}}
+    body{
+      min-width:320px;
+      background:var(--paper);
+      color:var(--ink);
+      font-family:var(--display);
+      font-size:16px;
+      line-height:1.55;
+      -webkit-font-smoothing:antialiased;
+      text-rendering:optimizeLegibility;
+    }
+    ::selection{background:#dbe3ff}
+    :focus-visible{outline:3px solid #9fb0ff;outline-offset:3px;border-radius:4px}
+    .wrap{width:min(1160px,calc(100% - 48px));margin-inline:auto}
+    .mono{font-family:var(--mono)}
+    .skip-link{position:fixed;left:16px;top:-60px;z-index:100;padding:10px 14px;border-radius:8px;background:var(--ink);color:#fff;font-weight:600}
+    .skip-link:focus{top:12px}
 
-/* Hero */
-.hero{padding:clamp(48px,7vw,88px) 0 clamp(72px,9vw,112px)}
-.hero-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(42px,7vw,86px);align-items:center}
-.hero-copy,.debate{min-width:0}
-.hero h1{max-width:10.5ch;margin:18px 0 22px;font-family:var(--display);font-size:clamp(3.5rem,6.4vw,5.55rem);font-weight:900;letter-spacing:-.06em;line-height:.88;text-wrap:balance}
-.hero h1 .break{color:var(--review)}
-.hero-copy>.lede{max-width:34rem}
-.hero-promises{display:grid;margin-top:22px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
-.promise{display:grid;grid-template-columns:108px minmax(0,1fr);gap:12px;align-items:start;padding:12px 14px;box-shadow:inset 4px 0 0 var(--brand)}
-.promise+.promise{border-top:1px solid var(--line)}
-.promise:last-child{box-shadow:inset 4px 0 0 var(--pass)}
-.promise-k{padding-top:2px;font-family:var(--mono);font-size:.58rem;font-weight:900;line-height:1.35;letter-spacing:.08em;text-transform:uppercase;color:var(--brand)}
-.promise:last-child .promise-k{color:var(--pass)}
-.promise strong{display:block;font-size:.95rem;line-height:1.25}
-.promise small{display:block;margin-top:3px;color:var(--muted);font-size:.72rem;line-height:1.4}
-.hero-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:18px;max-width:560px}
-.install-command{display:flex;align-items:stretch;min-width:0;flex:1 1 100%;height:48px;padding:0;border:1px solid color-mix(in srgb,var(--code) 86%,white);border-radius:10px;overflow:hidden;background:var(--code);color:var(--code-ink);box-shadow:var(--shadow);cursor:pointer}
-.install-command code{display:flex;align-items:center;min-width:0;flex:1;padding:0 15px;overflow-x:auto;white-space:nowrap;font-family:var(--mono);font-size:.78rem;scrollbar-width:none}
-.install-command code::-webkit-scrollbar{display:none}
-.install-command .prompt{margin-right:8px;color:#8EA0FF}
-.install-command .copy-label{display:grid;place-items:center;min-width:58px;border-left:1px solid #2B3446;font-family:var(--mono);font-size:.7rem;color:#AAB3C2}
-.install-command:hover .copy-label{color:#fff;background:#1C2433}
-.install-command.copied .copy-label{color:#6BE0A0}
-.hero-note{margin-top:15px;font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+    .site-header{position:sticky;top:0;z-index:50;border-bottom:1px solid rgba(229,231,235,.9);background:rgba(252,252,253,.9);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+    .header-inner{height:62px;display:flex;align-items:center;gap:28px}
+    .brand{display:inline-flex;align-items:center;gap:10px;font-size:1rem;font-weight:700;letter-spacing:-.02em}
+    .brand img{width:25px;height:25px}
+    .top-nav{margin-left:auto;display:flex;align-items:center;gap:4px}
+    .top-nav a{padding:8px 10px;border-radius:7px;color:var(--copy);font-size:.84rem;font-weight:500}
+    .top-nav a:hover{background:var(--wash);color:var(--ink)}
+    .top-nav .github-link{margin-left:6px;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink)}
 
-/* The single visual signature: an argument transcript */
-.debate{position:relative;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
-.debate::before{content:"";display:block;height:4px;background:linear-gradient(90deg,var(--review) 0 34%,var(--fix) 34% 68%,var(--human) 68% 100%)}
-.debate-top{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--surface-2) 58%,var(--surface))}
-.pr-ref{display:flex;align-items:baseline;gap:8px;min-width:0}
-.pr-ref span{font-family:var(--mono);font-size:.72rem;color:var(--muted);flex:none}
-.pr-ref strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.92rem}
-.ci-pill{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none;border:1px solid color-mix(in srgb,var(--pass) 35%,var(--line));border-radius:999px;padding:4px 9px;font-family:var(--mono);font-size:.65rem;font-weight:800;color:var(--pass)}
-.debate-body{padding:17px}
-.code-line{padding:10px 12px;border-radius:8px;background:var(--code);color:var(--code-ink);overflow-x:auto;white-space:nowrap;font-family:var(--mono);font-size:.72rem;scrollbar-width:none}
-.code-line::-webkit-scrollbar{display:none}
-.code-line .danger{color:#FF7B7B;text-decoration:underline;text-decoration-style:wavy;text-underline-offset:3px}
-.transcript{display:grid;gap:8px;margin-top:12px}
-.turn{display:grid;grid-template-columns:76px minmax(0,1fr);gap:10px;align-items:start;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);opacity:.16;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease,border-color .35s ease,background .35s ease}
-.turn.on{opacity:1;transform:none}
-.turn.review.on{border-color:color-mix(in srgb,var(--review) 40%,var(--line));background:color-mix(in srgb,var(--review) 5%,var(--surface))}
-.turn.fix.on{border-color:color-mix(in srgb,var(--fix) 38%,var(--line));background:color-mix(in srgb,var(--fix) 5%,var(--surface))}
-.turn.refuse.on{border-color:color-mix(in srgb,var(--human) 48%,var(--line));background:color-mix(in srgb,var(--human) 7%,var(--surface))}
-.speaker{padding-top:2px;font-family:var(--mono);font-size:.62rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
-.review .speaker{color:var(--review)}
-.fix .speaker{color:var(--fix)}
-.refuse .speaker{color:var(--human)}
-.turn p{min-width:0;color:var(--ink-2);font-size:.82rem;line-height:1.36;overflow-wrap:anywhere}
-.turn strong{color:var(--ink);font-weight:750}
-.decision{display:flex;align-items:center;gap:10px;margin-top:12px;padding:11px 12px;border:1px solid color-mix(in srgb,var(--pass) 38%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--pass) 7%,var(--surface));opacity:.14;transform:translateY(4px);transition:opacity .4s,transform .4s}
-.decision.on{opacity:1;transform:none}
-.decision .check{width:22px;height:22px;display:grid;place-items:center;flex:none;border-radius:50%;background:var(--pass);color:#fff;font-size:.8rem;font-weight:900}
-.decision-copy{min-width:0}
-.decision-copy span{display:block;font-family:var(--mono);font-size:.6rem;font-weight:800;letter-spacing:.08em;color:var(--pass)}
-.decision-copy strong{display:block;margin-top:1px;font-size:.84rem;line-height:1.25}
-.human-chip{margin-left:auto;flex:none;border:1px solid color-mix(in srgb,var(--human) 48%,var(--line));border-radius:999px;padding:5px 9px;font-family:var(--mono);font-size:.62rem;font-weight:800;color:var(--human)}
-.debate-foot{display:grid;grid-template-columns:auto minmax(70px,1fr) auto;align-items:center;gap:12px;padding:11px 17px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface-2) 58%,var(--surface));font-family:var(--mono);font-size:.62rem;color:var(--muted)}
-.sequence{white-space:nowrap}
-.sequence b{font-weight:800;color:var(--ink-2)}
-.progress{height:3px;border-radius:999px;background:var(--line);overflow:hidden}
-.progress span{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left;background:var(--brand)}
-.clock{font-variant-numeric:tabular-nums}
+    .hero{padding:clamp(76px,10vw,132px) 0 88px;text-align:center}
+    .hero-inner{max-width:850px;margin-inline:auto}
+    .eyebrow{font-family:var(--mono);font-size:.68rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--blue)}
+    h1{max-width:14ch;margin:18px auto 22px;font-size:clamp(3rem,7vw,6rem);font-weight:600;letter-spacing:-.065em;line-height:.92;text-wrap:balance}
+    .hero-copy{max-width:650px;margin-inline:auto;color:var(--copy);font-size:clamp(1.05rem,2vw,1.25rem);line-height:1.55;text-wrap:balance}
+    .hero-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:28px}
+    .button{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:1px solid var(--rule-strong);border-radius:9px;background:var(--surface);color:var(--ink);font-size:.86rem;font-weight:600;cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
+    .button:hover{border-color:#b8bdc7;background:var(--wash);transform:translateY(-1px)}
+    .button.primary{border-color:var(--blue);background:var(--blue);color:#fff}
+    .button.primary:hover{border-color:var(--blue-dark);background:var(--blue-dark)}
+    .button svg{width:15px;height:15px}
 
-/* Sequence */
-.how{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--surface) 45%,var(--page))}
-.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin-top:48px;counter-reset:step}
-.step{min-width:0;padding-top:18px;border-top:3px solid var(--line);counter-increment:step}
-.step::before{content:"0" counter(step);display:block;margin-bottom:22px;font-family:var(--mono);font-size:.7rem;font-weight:800;letter-spacing:.12em;color:var(--muted)}
-.step:nth-child(1){border-color:var(--review)}
-.step:nth-child(2){border-color:var(--fix)}
-.step:nth-child(3){border-color:var(--pass)}
-.step h3{font-family:var(--display);font-size:1.55rem;font-weight:800;letter-spacing:-.035em}
-.step p{margin-top:10px;color:var(--ink-2);font-size:.94rem}
-.guardrails{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:52px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
-.guardrails li{padding:16px;border-right:1px solid var(--line);font-family:var(--mono);font-size:.69rem;font-weight:700;color:var(--ink-2)}
-.guardrails li:last-child{border:0}
-.guardrails li::before{content:"✓";margin-right:7px;color:var(--pass);font-weight:900}
+    .hero-terminal{width:min(760px,100%);margin:50px auto 0;border:1px solid #293142;border-radius:12px;overflow:hidden;background:var(--code);box-shadow:0 28px 70px rgba(21,26,36,.18);text-align:left}
+    .terminal-bar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #293142;background:#1b2130}
+    .terminal-dot{width:8px;height:8px;border-radius:50%;background:#424a5b}
+    .terminal-dot:nth-child(1){background:#e06767}.terminal-dot:nth-child(2){background:#d5a73f}.terminal-dot:nth-child(3){background:#46a96d}
+    .terminal-title{margin-left:auto;margin-right:auto;transform:translateX(-22px);font-family:var(--mono);font-size:.62rem;color:#8e98aa}
+    .terminal-body{padding:24px 26px 27px;color:var(--code-copy);font-family:var(--mono);font-size:clamp(.72rem,1.6vw,.84rem);line-height:1.85;overflow-x:auto}
+    .terminal-body .prompt{color:#94a7ff}.terminal-body .dim{color:#8490a4}.terminal-body .ok{color:#75d5a4}
 
-/* Independence + doctrine */
-.principles-grid{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(42px,8vw,100px);align-items:start}
-.principles-copy .lede{margin-top:20px;max-width:34rem}
-.principles-copy .plain{margin-top:18px;color:var(--ink-2);max-width:34rem}
-.doctrine{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
-.doctrine-head{display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid var(--line);background:var(--surface-2);font-family:var(--mono);font-size:.68rem;color:var(--muted)}
-.doctrine-head::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--review)}
-.doctrine pre{margin:0;padding:20px;overflow-x:auto;color:var(--code-ink);background:var(--code);font-family:var(--mono);font-size:.78rem;line-height:1.75}
-.doctrine .rule{color:#AAB5FF}
-.doctrine .comment{color:#7E8999}
+    .content-shell{display:grid;grid-template-columns:180px minmax(0,800px);gap:72px;align-items:start;width:min(1052px,calc(100% - 48px));margin:0 auto;padding-bottom:110px}
+    .side-nav{position:sticky;top:94px;padding-top:4px}
+    .side-nav-label{margin-bottom:13px;font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+    .side-nav ul{border-left:1px solid var(--rule)}
+    .side-nav a{display:block;margin-left:-1px;padding:7px 0 7px 15px;border-left:2px solid transparent;color:var(--muted);font-size:.8rem;line-height:1.3}
+    .side-nav a:hover{color:var(--ink)}
+    .side-nav a.active{border-color:var(--blue);color:var(--ink);font-weight:600}
 
-/* Offers */
-.pricing{border-top:1px solid var(--line)}
-.offers{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:42px}
-.offer{display:flex;flex-direction:column;min-width:0;padding:28px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
-.offer.primary{border-color:color-mix(in srgb,var(--brand) 45%,var(--line));box-shadow:var(--shadow)}
-.offer-label{font-family:var(--mono);font-size:.67rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
-.offer-price{margin-top:12px;font-family:var(--display);font-size:clamp(2.3rem,5vw,4rem);font-weight:900;letter-spacing:-.055em;line-height:1}
-.offer-price small{font-family:var(--body);font-size:.82rem;font-weight:600;letter-spacing:0;color:var(--muted)}
-.offer p{margin:14px 0 24px;color:var(--ink-2);max-width:42ch}
-.offer .btn{margin-top:auto;align-self:flex-start}
+    .content{min-width:0}
+    .doc-section{scroll-margin-top:92px;padding:92px 0;border-top:1px solid var(--rule)}
+    .doc-section:first-child{padding-top:0;border-top:0}
+    .section-kicker{font-family:var(--mono);font-size:.64rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+    h2{max-width:15ch;margin-top:12px;font-size:clamp(2.25rem,5vw,3.8rem);font-weight:600;letter-spacing:-.055em;line-height:1;text-wrap:balance}
+    .section-lede{max-width:660px;margin-top:20px;color:var(--copy);font-size:1.03rem;line-height:1.65}
+    h3{font-size:1rem;font-weight:650;letter-spacing:-.015em}
 
-/* FAQ + footer */
-.faq{padding-top:0}
-.faq-list{margin-top:38px;border-top:1px solid var(--line)}
-.faq details{border-bottom:1px solid var(--line)}
-.faq summary{display:flex;align-items:center;gap:16px;padding:20px 0;cursor:pointer;list-style:none;font-weight:750;letter-spacing:-.01em}
-.faq summary::-webkit-details-marker{display:none}
-.faq summary::after{content:"+";margin-left:auto;font-family:var(--mono);font-size:1.2rem;font-weight:400;color:var(--muted)}
-.faq details[open] summary::after{content:"−";color:var(--brand)}
-.answer{max-width:720px;padding:0 0 22px;color:var(--ink-2)}
-.answer p+p{margin-top:12px}
-.site-footer{border-top:1px solid var(--line);padding:28px 0 34px}
-.footer-in{display:flex;align-items:center;gap:20px;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
-.footer-links{margin-left:auto;display:flex;gap:18px}
-.footer-links a:hover{color:var(--ink)}
+    .setup-card{position:relative;margin-top:38px;border:1px solid var(--rule);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+    .setup-card::after{content:"";position:absolute;inset:0 0 auto auto;width:34%;height:100%;z-index:0;background:linear-gradient(145deg,transparent 10%,rgba(49,87,232,.035) 70%,rgba(112,87,229,.08));pointer-events:none}
+    .setup-head{position:relative;z-index:1;padding:22px 24px;border-bottom:1px solid var(--rule);background:rgba(245,246,249,.82)}
+    .setup-head strong{display:block;font-size:1rem}.setup-head span{display:block;margin-top:3px;color:var(--muted);font-size:.82rem}
+    .setup-steps{position:relative;z-index:1;counter-reset:setup}
+    .setup-step{display:grid;grid-template-columns:36px minmax(0,1fr);gap:14px;padding:24px;counter-increment:setup}
+    .setup-step+.setup-step{border-top:1px solid var(--rule)}
+    .setup-step::before{content:counter(setup);width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--rule-strong);border-radius:50%;background:var(--surface);font-family:var(--mono);font-size:.64rem;font-weight:600;color:var(--copy)}
+    .setup-step p{margin-top:5px;color:var(--copy);font-size:.88rem}
+    .command{display:flex;align-items:stretch;min-width:0;margin-top:14px;border:1px solid #2b3344;border-radius:8px;overflow:hidden;background:var(--code);color:var(--code-copy)}
+    .command code{min-width:0;flex:1;padding:12px 14px;overflow-x:auto;white-space:nowrap;font-family:var(--mono);font-size:.76rem;scrollbar-width:none}
+    .command code::-webkit-scrollbar{display:none}
+    .command .shell-prompt{margin-right:8px;color:#94a7ff}
+    .copy-button{flex:none;width:64px;border:0;border-left:1px solid #2b3344;background:#1b2130;color:#a9b2c2;font-family:var(--mono);font-size:.64rem;cursor:pointer}
+    .copy-button:hover{background:#242c3c;color:#fff}
+    .copy-button.copied{color:#75d5a4}
+    .setup-note{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:13px 14px;border:1px solid #dce3ff;border-radius:9px;background:var(--blue-wash);color:#3f4a68;font-size:.82rem}
+    .setup-note svg{width:16px;height:16px;flex:none;margin-top:2px;color:var(--blue)}
+    .provider-rail{display:flex;align-items:stretch;gap:10px;margin-top:28px}
+    .provider-node{flex:1;display:flex;align-items:center;gap:11px;padding:13px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+    .provider-node::before{content:"";width:9px;height:9px;flex:none;border-radius:50%;background:var(--blue);box-shadow:0 0 0 4px var(--blue-wash)}
+    .provider-node.fallback::before{background:#7857d6;box-shadow:0 0 0 4px #f1edff}
+    .provider-node.trusted::before{background:var(--pass);box-shadow:0 0 0 4px var(--pass-wash)}
+    .provider-node strong{display:block;font-size:.78rem}.provider-node span{display:block;margin-top:1px;color:var(--muted);font-family:var(--mono);font-size:.57rem}
+    .provider-arrow{align-self:center;color:#a1a6b0;font-family:var(--mono);font-size:.72rem}
 
-@media (max-width:920px){
-  .hero-grid,.principles-grid{grid-template-columns:1fr}
-  .hero h1{max-width:12ch}
-  .hero-copy>.lede{max-width:44rem}
-  .debate{max-width:720px}
-  .offers{grid-template-columns:1fr 1fr}
-}
-@media (max-width:720px){
-  .wrap{width:min(100% - 32px,1160px)}
-  .nav-text{display:none}
-  .hero{padding-top:42px}
-  .hero h1{font-size:clamp(2.9rem,13.2vw,4rem);line-height:.91;max-width:10.5ch}
-  .promise{grid-template-columns:102px minmax(0,1fr);padding-inline:12px}
-  .hero-actions{align-items:stretch;flex-direction:column}
-  .hero-actions .btn{align-self:flex-start}
-  .debate-top{align-items:flex-start}
-  .ci-pill{font-size:.58rem}
-  .turn{grid-template-columns:64px minmax(0,1fr);gap:8px;padding:9px}
-  .turn p{font-size:.76rem}
-  .speaker{font-size:.55rem}
-  .human-chip{display:none}
-  .debate-foot{grid-template-columns:1fr auto}
-  .debate-foot .progress{grid-column:1/-1;grid-row:2}
-  .steps,.offers{grid-template-columns:1fr}
-  .guardrails{grid-template-columns:1fr 1fr}
-  .guardrails li:nth-child(2){border-right:0}
-  .guardrails li:nth-child(-n+2){border-bottom:1px solid var(--line)}
-  .offer{padding:22px}
-  .footer-in{align-items:flex-start;flex-direction:column}
-  .footer-links{margin-left:0;flex-wrap:wrap}
-}
-@media (max-width:390px){
-  .header-in{gap:10px}
-  .nav a{padding-inline:7px}
-  .install-command code{font-size:.7rem;padding-inline:12px}
-  .install-command .copy-label{min-width:50px}
-  .debate-body{padding:12px}
-  .debate-top{padding:13px 12px}
-  .pr-ref strong{font-size:.82rem}
-  .guardrails{grid-template-columns:1fr}
-  .guardrails li{border-right:0;border-bottom:1px solid var(--line)!important}
-  .guardrails li:last-child{border-bottom:0!important}
-}
-@media (prefers-reduced-motion:reduce){
-  html{scroll-behavior:auto}
-  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
-}
-</style>
+    .agent-grid{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:26px;align-items:start;margin-top:38px}
+    .agent-notes{padding-top:5px}
+    .agent-notes ol{display:grid;gap:18px;counter-reset:agent}
+    .agent-notes li{position:relative;padding-left:30px;color:var(--copy);font-size:.9rem;counter-increment:agent}
+    .agent-notes li::before{content:counter(agent);position:absolute;left:0;top:1px;width:19px;height:19px;display:grid;place-items:center;border-radius:50%;background:var(--wash);font-family:var(--mono);font-size:.58rem;font-weight:600;color:var(--muted)}
+    .agent-labels{display:flex;flex-wrap:wrap;gap:7px;margin-top:24px}
+    .agent-labels span{padding:5px 8px;border:1px solid var(--rule);border-radius:6px;background:var(--surface);font-family:var(--mono);font-size:.62rem;color:var(--muted)}
+    .prompt-card{border:1px solid #293142;border-radius:12px;overflow:hidden;background:var(--code);box-shadow:var(--shadow)}
+    .prompt-head{height:40px;display:flex;align-items:center;gap:8px;padding:0 13px;border-bottom:1px solid #293142;background:#1b2130;color:#929bad;font-family:var(--mono);font-size:.62rem}
+    .prompt-head svg{width:14px;height:14px}.prompt-head .copy-button{width:auto;margin-left:auto;padding:6px 9px;border:1px solid #394356;border-radius:6px;background:#242c3c}
+    .prompt-card pre{padding:22px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;color:var(--code-copy);font-family:var(--mono);font-size:.75rem;line-height:1.7}
+    .prompt-card .accent{color:#9eafff}
+
+    .effects-list{position:relative;display:grid;gap:62px;margin-top:48px}
+    .effects-list::before{content:"";position:absolute;left:20px;top:20px;bottom:20px;width:1px;background:linear-gradient(var(--review),var(--fix) 52%,var(--pass))}
+    .effect-row{position:relative;display:grid;grid-template-columns:72px minmax(0,.72fr) minmax(340px,1.28fr);gap:22px;align-items:center}
+    .effect-index{position:relative;z-index:2;width:41px;height:41px;display:grid;place-items:center;border:1px solid var(--rule-strong);border-radius:50%;background:var(--paper);font-family:var(--mono);font-size:.63rem;font-weight:600}
+    .effect-row.review .effect-index{border-color:#e4bdc2;color:var(--review)}
+    .effect-row.fix .effect-index{border-color:#b8c5ff;color:var(--fix)}
+    .effect-row.stop .effect-index{border-color:#acd9c5;color:var(--pass)}
+    .effect-copy .role{font-family:var(--mono);font-size:.61rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+    .effect-row.review .role{color:var(--review)}.effect-row.fix .role{color:var(--fix)}.effect-row.stop .role{color:var(--pass)}
+    .effect-copy h3{margin-top:9px;font-size:1.18rem}
+    .effect-copy p{margin-top:8px;color:var(--copy);font-size:.86rem;line-height:1.55}
+
+    .capture{min-width:0;border:1px solid #d8dce3;border-radius:11px;overflow:hidden;background:var(--surface);box-shadow:0 18px 50px rgba(30,38,60,.1)}
+    .capture-bar{height:35px;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid var(--rule);background:#f6f7f9}
+    .capture-dot{width:7px;height:7px;border-radius:50%;background:#c8ccd3}
+    .capture-url{margin-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:.56rem;color:#8a909b}
+    .capture-body{padding:15px}
+    .gh-meta{display:flex;align-items:center;gap:8px;color:#57606a;font-size:.68rem}
+    .avatar{width:23px;height:23px;display:grid;place-items:center;border-radius:50%;background:#24292f;color:#fff;font-family:var(--mono);font-size:.55rem;font-weight:600}
+    .gh-meta strong{color:#24292f;font-weight:600}.bot-pill{padding:1px 4px;border:1px solid #afb8c1;border-radius:4px;font-size:.55rem}
+    .file{margin-top:11px;border:1px solid #d8dee4;border-radius:6px;overflow:hidden}
+    .file-head{padding:7px 10px;border-bottom:1px solid #d8dee4;background:#f6f8fa;font-family:var(--mono);font-size:.57rem;color:#57606a}
+    .diff-line{display:grid;grid-template-columns:26px minmax(0,1fr);font-family:var(--mono);font-size:.58rem;line-height:1.7}
+    .diff-line span:first-child{padding-right:6px;background:#f6f8fa;color:#8c959f;text-align:right}.diff-line code{padding:1px 8px;overflow:hidden;white-space:nowrap;color:#24292f}
+    .diff-line.hot span:first-child{background:#ffebe9}.diff-line.hot code{background:#ffebe9}
+    .review-comment{margin:10px;border:1px solid #d0d7de;border-radius:6px;overflow:hidden}
+    .review-comment-head{padding:7px 9px;background:var(--review-wash);font-size:.6rem;font-weight:600;color:#6e2c35}
+    .review-comment p{padding:9px;color:#24292f;font-size:.67rem;line-height:1.45}
+    .commit{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--rule)}
+    .commit:last-of-type{border-bottom:0}.commit-icon{width:25px;height:25px;display:grid;place-items:center;border:1px solid #b8c5ff;border-radius:50%;background:var(--fix-wash);color:var(--fix);font-size:.7rem}
+    .commit-copy{min-width:0}.commit-copy strong{display:block;font-size:.72rem}.commit-copy span{display:block;margin-top:2px;font-family:var(--mono);font-size:.56rem;color:#6e7781}
+    .reply{margin-top:12px;padding:10px 11px;border-left:3px solid var(--fix);border-radius:0 6px 6px 0;background:var(--fix-wash);color:#38415c;font-size:.66rem;line-height:1.48}
+    .check-list{border:1px solid #d8dee4;border-radius:7px;overflow:hidden}
+    .check{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 10px}
+    .check+.check{border-top:1px solid #d8dee4}.check-mark{width:17px;height:17px;display:grid;place-items:center;border-radius:50%;background:var(--pass);color:#fff;font-size:.58rem;font-weight:700}.check strong{font-size:.68rem}.check span:last-child{font-size:.58rem;color:#6e7781}
+    .merge-box{display:flex;align-items:center;gap:10px;margin-top:12px;padding:11px;border:1px solid #a8d5bd;border-radius:7px;background:var(--pass-wash)}
+    .merge-box p{min-width:0;color:#32614c;font-size:.65rem;line-height:1.4}.merge-box strong{display:block;color:#1d5039}
+    .merge-button{margin-left:auto;flex:none;padding:6px 9px;border:1px solid #15803d;border-radius:6px;background:#1f883d;color:#fff;font-size:.61rem;font-weight:600}
+
+    .boundary-table{margin-top:38px;border-top:1px solid var(--rule)}
+    .boundary-row{display:grid;grid-template-columns:185px minmax(0,1fr);gap:28px;padding:18px 0;border-bottom:1px solid var(--rule)}
+    .boundary-row strong{font-size:.84rem}.boundary-row p{color:var(--copy);font-size:.85rem}
+    .boundary-row code{font-family:var(--mono);font-size:.75rem}
+
+    .pricing-grid{display:grid;grid-template-columns:1fr 1fr;margin-top:38px;border:1px solid var(--rule);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+    .plan{display:flex;flex-direction:column;min-width:0;padding:28px}
+    .plan+.plan{border-left:1px solid var(--rule)}
+    .plan-top{display:flex;align-items:center;gap:10px}
+    .plan-name{font-size:.94rem;font-weight:650}
+    .plan-badge{margin-left:auto;padding:4px 7px;border:1px solid #cdd6ff;border-radius:999px;background:var(--blue-wash);color:var(--blue);font-family:var(--mono);font-size:.56rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+    .plan-price{display:flex;align-items:baseline;gap:8px;margin-top:22px}
+    .plan-price strong{font-size:clamp(2.7rem,6vw,4.2rem);font-weight:600;letter-spacing:-.065em;line-height:.9}
+    .plan-price span{max-width:105px;color:var(--muted);font-size:.72rem;line-height:1.35}
+    .plan-copy{min-height:72px;margin-top:18px;color:var(--copy);font-size:.86rem;line-height:1.6}
+    .plan-details{margin:18px 0 24px;border-top:1px solid var(--rule)}
+    .plan-details li{padding:10px 0;border-bottom:1px solid var(--rule);color:var(--copy);font-size:.78rem}
+    .plan-details li::before{content:"✓";margin-right:8px;color:var(--pass);font-weight:700}
+    .plan .button{align-self:flex-start;margin-top:auto}
+
+    .final-cta{margin-top:16px;padding:52px;border:1px solid var(--rule);border-radius:14px;background:var(--surface);text-align:center;box-shadow:var(--shadow)}
+    .final-cta h2{max-width:12ch;margin-inline:auto}.final-cta p{max-width:520px;margin:18px auto 0;color:var(--copy)}
+    .final-command{width:min(560px,100%);margin:25px auto 0}
+
+    .site-footer{border-top:1px solid var(--rule);background:var(--surface)}
+    .footer-inner{min-height:78px;display:flex;align-items:center;gap:18px;color:var(--muted);font-size:.76rem}
+    .footer-links{margin-left:auto;display:flex;gap:18px}.footer-links a:hover{color:var(--ink)}
+
+    @media (max-width:900px){
+      .content-shell{display:block;width:min(800px,calc(100% - 40px))}
+      .side-nav{display:none}
+      .effect-row{grid-template-columns:52px minmax(0,1fr)}
+      .capture{grid-column:2;margin-top:2px}
+      .effects-list::before{left:20px}
+      .agent-grid{grid-template-columns:1fr}
+    }
+    @media (max-width:640px){
+      .wrap{width:calc(100% - 32px)}
+      .header-inner{height:56px;gap:12px}
+      .top-nav a:not(.github-link){display:none}
+      .top-nav .github-link{margin-left:0}
+      .hero{padding:64px 0 72px}
+      h1{font-size:clamp(2.75rem,15vw,4.4rem)}
+      .hero-terminal{margin-top:36px}
+      .terminal-body{padding:18px 16px}
+      .content-shell{width:calc(100% - 32px);padding-bottom:72px}
+      .doc-section{padding:70px 0}
+      .setup-head,.setup-step{padding:18px}
+      .setup-step{grid-template-columns:30px minmax(0,1fr);gap:10px}
+      .setup-step .command{margin-left:-40px}
+      .command code{padding-inline:11px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font-size:.66rem}
+      .copy-button{width:54px}
+      .setup-note{margin-inline:-2px}
+      .provider-rail{display:grid;grid-template-columns:1fr;gap:7px}.provider-arrow{transform:rotate(90deg);justify-self:center;line-height:1}
+      .effect-row{grid-template-columns:41px minmax(0,1fr);gap:14px}
+      .capture{grid-column:1 / -1;margin-left:0}
+      .effects-list::before{left:20px;bottom:150px}
+      .boundary-row{grid-template-columns:1fr;gap:5px}
+      .pricing-grid{grid-template-columns:1fr}
+      .plan{padding:24px 20px}
+      .plan+.plan{border-top:1px solid var(--rule);border-left:0}
+      .plan-copy{min-height:0}
+      .final-cta{padding:40px 18px}
+      .footer-inner{align-items:flex-start;flex-direction:column;padding:22px 0}
+      .footer-links{margin-left:0}
+    }
+    @media (prefers-reduced-motion:reduce){
+      html{scroll-behavior:auto}
+      *,*::before,*::after{transition-duration:.001ms!important}
+    }
+  </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-<header class="site-header">
-  <div class="wrap header-in">
-    <a class="brand" href="#top" aria-label="Latch home">
-      <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path class="brand-frame" d="M10.5 5.5h-4v21h4M21.5 5.5h4v6M25.5 20.5v6h-4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-        <rect class="brand-bolt" x="8.5" y="14" width="12.75" height="4" rx="2"/>
-        <circle class="brand-release" cx="23.5" cy="16" r="3.75"/>
-      </svg>
-      Latch
-    </a>
-    <nav class="nav" aria-label="Primary">
-      <a class="nav-text" href="#how">How it works</a>
-      <a class="nav-text" href="#principles">Why independent</a>
-      <a class="nav-text" href="#pricing">Pricing</a>
-      <a data-gh href="https://github.com/nishantkumar1292/latch">GitHub ↗</a>
-      <button class="theme-button" id="themeButton" aria-label="Toggle color theme">
-        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-      </button>
-    </nav>
-  </div>
-</header>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="Latch home">
+        <img src="logo-mark.svg" alt="">
+        <span>Latch</span>
+      </a>
+      <nav class="top-nav" aria-label="Primary navigation">
+        <a href="#install">Install</a>
+        <a href="#agent">Use with an agent</a>
+        <a href="#effect">See the effect</a>
+        <a href="#pricing">Pricing</a>
+        <a class="github-link" href="https://github.com/nishantkumar1292/latch">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
 
-<main id="top">
-  <section class="hero">
-    <div class="wrap hero-grid">
-      <div class="hero-copy">
-        <p class="eyebrow">Open source · independent · human merges</p>
-        <h1>Your agent wrote the PR. Latch tries to <span class="break">break it.</span></h1>
-        <p class="lede">A reviewer attacks the diff. A separate fixer patches the real defects, fights the bad findings, and re-runs the review. Then Latch stops for you.</p>
-        <div class="hero-promises" aria-label="How Latch is billed and triggered">
-          <div class="promise">
-            <span class="promise-k">No new subscription</span>
-            <span><strong>Use the coding-agent plan you already pay for.</strong><small>Claude Pro/Max today. Latch charges only if you choose hosted.</small></span>
-          </div>
-          <div class="promise">
-            <span class="promise-k">Runs automatically</span>
-            <span><strong>No manual review request.</strong><small>Open a PR—or mark it ready—and the review → fix → re-review loop starts itself.</small></span>
-          </div>
-        </div>
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-inner">
+        <p class="eyebrow">Open source · runs in GitHub Actions</p>
+        <h1>Inspect every agent-written PR.</h1>
+        <p class="hero-copy">Claude reviews first. If it cannot finish, an optional Codex subscription fallback takes the same independent pass. A separate fixer repairs real defects; you still merge.</p>
         <div class="hero-actions">
-          <button class="install-command copy-command" data-copy="npx github:nishantkumar1292/latch init" aria-label="Copy install command">
-            <code><span class="prompt">$</span>npx github:nishantkumar1292/latch init</code>
-            <span class="copy-label" aria-live="polite">Copy</span>
-          </button>
-          <a class="btn" data-gh href="https://github.com/nishantkumar1292/latch">
+          <a class="button primary" href="#install">Install Latch</a>
+          <a class="button" href="https://github.com/nishantkumar1292/latch">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
             View source
           </a>
         </div>
-        <p class="hero-note">One-time setup per repo · runs in your GitHub Actions · human merges</p>
-      </div>
 
-      <figure class="debate" id="debate" aria-label="A simulated replay of Latch reviewing, fixing, and re-reviewing a pull request">
-        <div class="debate-top">
-          <div class="pr-ref"><span>#412</span><strong>add math-drill generator</strong></div>
-          <span class="ci-pill">✓ CI PASSED</span>
-        </div>
-        <div class="debate-body">
-          <div class="code-line"><span>const choices = </span><span class="danger">[answer - 1, answer, answer + 1]</span><span>;</span></div>
-          <ol class="transcript">
-            <li class="turn review" id="turnReviewOne">
-              <span class="speaker">Reviewer</span>
-              <p><strong>Green CI missed this.</strong> The correct answer is always the middle tile.</p>
+        <figure class="hero-terminal" aria-label="Installing and checking Latch from a terminal">
+          <div class="terminal-bar">
+            <i class="terminal-dot"></i><i class="terminal-dot"></i><i class="terminal-dot"></i>
+            <span class="terminal-title">~/your-repository</span>
+          </div>
+          <div class="terminal-body">
+            <div><span class="prompt">$</span> npx github:nishantkumar1292/latch init --codex-fallback</div>
+            <div class="dim">created .github/workflows/latch-review.yml</div>
+            <div class="dim">created .github/workflows/latch-fix.yml</div>
+            <div class="dim">created .latch/policy.yml</div>
+            <div class="dim">provider Claude → Codex fallback (opt-in)</div>
+            <div class="ok">✓ Latch is installed. Complete the human-only setup.</div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <div class="content-shell">
+      <aside class="side-nav" aria-label="On this page">
+        <p class="side-nav-label">On this page</p>
+        <ul>
+          <li><a href="#install" class="active">Get started</a></li>
+          <li><a href="#agent">Use with an agent</a></li>
+          <li><a href="#effect">See the effect</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#boundaries">Boundaries</a></li>
+        </ul>
+      </aside>
+
+      <div class="content">
+        <section class="doc-section" id="install" data-section>
+          <p class="section-kicker">Quickstart</p>
+          <h2>Get started with Latch</h2>
+          <p class="section-lede">Run the installer once in a repository. It adds two workflows and a review policy; Claude stays primary and Codex fallback is explicit, configurable, and off by default.</p>
+
+          <div class="provider-rail" aria-label="Review provider fallback sequence">
+            <div class="provider-node"><div><strong>Claude</strong><span>primary review + fix</span></div></div>
+            <span class="provider-arrow" aria-hidden="true">→</span>
+            <div class="provider-node fallback"><div><strong>Codex</strong><span>only after Claude fails</span></div></div>
+            <span class="provider-arrow" aria-hidden="true">→</span>
+            <div class="provider-node trusted"><div><strong>Trusted workflow</strong><span>validates, posts, stops</span></div></div>
+          </div>
+
+          <div class="setup-card">
+            <div class="setup-head">
+              <strong>One-time setup per repository</strong>
+              <span>Node.js 18+, GitHub CLI, Claude access, and optionally a Codex subscription.</span>
+            </div>
+            <ol class="setup-steps">
+              <li class="setup-step">
+                <div>
+                  <h3>Install the workflows</h3>
+                  <p>Run this from the root of the repository you want reviewed.</p>
+                  <div class="command">
+                    <code><span class="shell-prompt">$</span>npx github:nishantkumar1292/latch init --codex-fallback</code>
+                    <button class="copy-button" type="button" data-copy="npx github:nishantkumar1292/latch init --codex-fallback" aria-label="Copy install command">Copy</button>
+                  </div>
+                </div>
+              </li>
+              <li class="setup-step">
+                <div>
+                  <h3>Connect the reviewer</h3>
+                  <p>Install the <a href="https://github.com/apps/claude" style="color:var(--blue);text-decoration:underline;text-underline-offset:3px">Claude GitHub App</a>, then add one Actions secret.</p>
+                  <div class="command">
+                    <code><span class="shell-prompt">$</span>claude setup-token<br><span class="shell-prompt">$</span>gh secret set CLAUDE_CODE_OAUTH_TOKEN --app actions</code>
+                    <button class="copy-button" type="button" data-copy="claude setup-token&#10;gh secret set CLAUDE_CODE_OAUTH_TOKEN --app actions" aria-label="Copy reviewer setup commands">Copy</button>
+                  </div>
+                  <div class="setup-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+                    <span>Use <code>ANTHROPIC_API_KEY</code> instead if you prefer metered API access. Set exactly one secret.</span>
+                  </div>
+                </div>
+              </li>
+              <li class="setup-step">
+                <div>
+                  <h3>Add Codex fallback <span class="mono" style="color:var(--muted);font-size:.68rem;font-weight:500">optional</span></h3>
+                  <p>Store a file-backed Codex login as an Actions secret, then enable the repository switch.</p>
+                  <div class="command">
+                    <code><span class="shell-prompt">$</span>codex -c 'cli_auth_credentials_store="file"' login<br><span class="shell-prompt">$</span>gh secret set CODEX_AUTH_JSON &lt; ~/.codex/auth.json<br><span class="shell-prompt">$</span>gh variable set LATCH_CODEX_FALLBACK --body true</code>
+                    <button class="copy-button" type="button" data-copy="codex -c 'cli_auth_credentials_store=&quot;file&quot;' login&#10;gh secret set CODEX_AUTH_JSON &lt; ~/.codex/auth.json&#10;gh variable set LATCH_CODEX_FALLBACK --body true" aria-label="Copy Codex fallback setup commands">Copy</button>
+                  </div>
+                  <div class="setup-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+                    <span><code>auth.json</code> is a reusable credential. Latch rejects fork and draft PRs before loading it and removes the runner copy after use. Same-repo branch writers can still influence what Codex reads; enable this only if you accept that boundary.</span>
+                  </div>
+                </div>
+              </li>
+              <li class="setup-step">
+                <div>
+                  <h3>Check the wiring</h3>
+                  <p>Doctor verifies the files, policy, Git remote, and authentication setup it can inspect safely.</p>
+                  <div class="command">
+                    <code><span class="shell-prompt">$</span>npx @nishantkumar1292/latch doctor</code>
+                    <button class="copy-button" type="button" data-copy="npx @nishantkumar1292/latch doctor" aria-label="Copy doctor command">Copy</button>
+                  </div>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <section class="doc-section" id="agent" data-section>
+          <p class="section-kicker">Coding-agent setup</p>
+          <h2>Hand the install to your coding agent</h2>
+          <p class="section-lede">Start your coding-agent CLI inside the target repository and paste one prompt. The agent changes files; you retain the credential steps.</p>
+
+          <div class="agent-grid">
+            <div class="agent-notes">
+              <ol>
+                <li>Open Claude Code, Codex, Cursor, or another coding-agent CLI in the repository.</li>
+                <li>Paste the prompt exactly as shown.</li>
+                <li>Review its commit, then run the human-only commands it returns.</li>
+              </ol>
+              <div class="agent-labels" aria-label="Compatible coding-agent CLIs">
+                <span>Claude Code</span><span>Codex</span><span>Cursor</span><span>Devin</span>
+              </div>
+            </div>
+            <div class="prompt-card">
+              <div class="prompt-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>
+                prompt.txt
+                <button class="copy-button" type="button" data-copy="Install Latch with the configurable Codex subscription fallback in this repository. Read https://raw.githubusercontent.com/nishantkumar1292/latch/master/INSTALL_FOR_AGENTS.md and follow it exactly. Do not request, read, or set any secret. Stop and give me the human-only commands when the repository changes are ready." aria-label="Copy coding agent prompt">Copy prompt</button>
+              </div>
+              <pre>Install Latch with the configurable Codex subscription fallback
+in this repository. Read
+<span class="accent">https://raw.githubusercontent.com/nishantkumar1292/latch/master/INSTALL_FOR_AGENTS.md</span>
+and follow it exactly. Do not request, read, or set any secret.
+Stop and give me the human-only commands when the repository
+changes are ready.</pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="doc-section" id="effect" data-section>
+          <p class="section-kicker">On the pull request</p>
+          <h2>See what Latch changes</h2>
+          <p class="section-lede">Every hop stays visible in GitHub: the provider used, the finding, the repair or disagreement, and the clean re-review.</p>
+
+          <ol class="effects-list">
+            <li class="effect-row review">
+              <span class="effect-index">01</span>
+              <div class="effect-copy">
+                <span class="role">Review</span>
+                <h3>Find what green CI missed</h3>
+                <p>Claude reviews first. If it cannot finish, Codex posts the same line-level finding with a visible fallback label.</p>
+              </div>
+              <figure class="capture" aria-label="Example inline GitHub review finding">
+                <div class="capture-bar"><i class="capture-dot"></i><i class="capture-dot"></i><i class="capture-dot"></i><span class="capture-url">github.com/acme/math-drills/pull/42/files</span></div>
+                <div class="capture-body">
+                  <div class="gh-meta"><span class="avatar">C</span><strong>claude</strong><span class="bot-pill">bot</span><span>reviewed</span></div>
+                  <div class="file">
+                    <div class="file-head">src/generate.ts</div>
+                    <div class="diff-line"><span>18</span><code>const choices = [answer - 1,</code></div>
+                    <div class="diff-line hot"><span>19</span><code>  answer,</code></div>
+                    <div class="diff-line"><span>20</span><code>  answer + 1];</code></div>
+                    <div class="review-comment">
+                      <div class="review-comment-head">Correct answer is always the middle tile</div>
+                      <p>A learner can answer every question without doing the math. Randomize the answer position when each problem is created.</p>
+                    </div>
+                  </div>
+                </div>
+              </figure>
             </li>
-            <li class="turn fix" id="turnFixOne">
-              <span class="speaker">Fixer</span>
-              <p><strong>Fixed in a3f9c1e.</strong> Randomized the answer position per problem.</p>
+
+            <li class="effect-row fix">
+              <span class="effect-index">02</span>
+              <div class="effect-copy">
+                <span class="role">Fix</span>
+                <h3>Repair the defect, not the review</h3>
+                <p>A separate fixer judges the finding, runs checks, commits a repair, and replies with the SHA.</p>
+              </div>
+              <figure class="capture" aria-label="Example Latch fix commit and review reply">
+                <div class="capture-bar"><i class="capture-dot"></i><i class="capture-dot"></i><i class="capture-dot"></i><span class="capture-url">github.com/acme/math-drills/pull/42</span></div>
+                <div class="capture-body">
+                  <div class="commit">
+                    <span class="commit-icon">↳</span>
+                    <span class="commit-copy"><strong>Randomize answer positions</strong><span>github-actions committed 9ac18f2</span></span>
+                  </div>
+                  <div class="reply"><strong>Fixed in 9ac18f2.</strong> The answer index is now sampled independently for each generated problem. Unit tests and lint pass.</div>
+                </div>
+              </figure>
             </li>
-            <li class="turn review" id="turnReviewTwo">
-              <span class="speaker">Reviewer</span>
-              <p>Seed the RNG so the test is reproducible.</p>
-            </li>
-            <li class="turn fix refuse" id="turnRefuse">
-              <span class="speaker">Fixer</span>
-              <p><strong>Declined.</strong> A fixed seed restores the pattern. Leaving this open for a human.</p>
+
+            <li class="effect-row stop">
+              <span class="effect-index">03</span>
+              <div class="effect-copy">
+                <span class="role">Stop</span>
+                <h3>Return the decision to a human</h3>
+                <p>The re-review is visible, the verdict is non-blocking, and Latch never presses merge.</p>
+              </div>
+              <figure class="capture" aria-label="Example clean Latch checks ready for human merge">
+                <div class="capture-bar"><i class="capture-dot"></i><i class="capture-dot"></i><i class="capture-dot"></i><span class="capture-url">github.com/acme/math-drills/pull/42/checks</span></div>
+                <div class="capture-body">
+                  <div class="check-list">
+                    <div class="check"><span class="check-mark">✓</span><strong>CI / test</strong><span>Passed</span></div>
+                    <div class="check"><span class="check-mark">✓</span><strong>Latch / merge-gate</strong><span>Clean</span></div>
+                  </div>
+                  <div class="merge-box">
+                    <span class="check-mark">✓</span>
+                    <p><strong>Latch stopped.</strong> This pull request is waiting for your decision.</p>
+                    <span class="merge-button">Merge pull request</span>
+                  </div>
+                </div>
+              </figure>
             </li>
           </ol>
-          <div class="decision" id="decision">
-            <span class="check">✓</span>
-            <div class="decision-copy"><span>RE-REVIEW CLEAN</span><strong>1 fixed · 1 open for you</strong></div>
-            <span class="human-chip">YOUR CALL</span>
+        </section>
+
+        <section class="doc-section" id="pricing" data-section>
+          <p class="section-kicker">Pricing</p>
+          <h2>Choose where Latch runs</h2>
+          <p class="section-lede">Run the complete loop yourself today, or join the waitlist for a managed GitHub App.</p>
+
+          <div class="pricing-grid">
+            <article class="plan">
+              <div class="plan-top">
+                <h3 class="plan-name">Open source</h3>
+              </div>
+              <div class="plan-price"><strong>$0</strong><span>forever</span></div>
+              <p class="plan-copy">Run Latch in your own GitHub Actions with Claude first and an optional Codex subscription fallback.</p>
+              <ul class="plan-details">
+                <li>Complete review and fix loop</li>
+                <li>Configurable Claude → Codex fallback</li>
+                <li>Human always merges</li>
+              </ul>
+              <a class="button" href="#install">Install open source</a>
+            </article>
+
+            <article class="plan">
+              <div class="plan-top">
+                <h3 class="plan-name">Hosted</h3>
+                <span class="plan-badge">Waitlist</span>
+              </div>
+              <div class="plan-price"><strong>$49</strong><span>per active repo / month</span></div>
+              <p class="plan-copy">Use the managed GitHub App without maintaining workflow files, runners, or a repository token.</p>
+              <ul class="plan-details">
+                <li>25 gated pull requests included</li>
+                <li>$8 per additional gated pull request</li>
+                <li>Managed setup and inference</li>
+              </ul>
+              <a class="button primary" href="https://tally.so/r/q474M7">Join the hosted waitlist</a>
+            </article>
           </div>
-        </div>
-        <figcaption class="debate-foot">
-          <span class="sequence">review → fix → review → you</span>
-          <span class="progress" aria-hidden="true"><span id="playhead"></span></span>
-          <span class="clock" id="debateClock">00:00</span>
-        </figcaption>
-      </figure>
-    </div>
-  </section>
+        </section>
 
-  <section class="section how" id="how">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">The automatic loop</p>
-        <h2>Configure once. Then it runs without you.</h2>
-        <p class="lede" style="margin-top:20px">Every new or ready-for-review PR starts Latch automatically. The only manual action is the one Latch refuses to take: merge.</p>
-      </div>
-      <ol class="steps">
-        <li class="step">
-          <h3>PR opens. Reviewer wakes.</h3>
-          <p>GitHub starts the independent review automatically—no command, dashboard, or review request.</p>
-        </li>
-        <li class="step">
-          <h3>The loop turns itself.</h3>
-          <p>The review wakes the fixer. A real fix re-dispatches the reviewer. A bad finding gets a reasoned refusal.</p>
-        </li>
-        <li class="step">
-          <h3>Clean—or capped—means stop.</h3>
-          <p>A clean review parks the PR for you. Three failed rounds escalate to a human instead of spinning forever.</p>
-        </li>
-      </ol>
-      <ul class="guardrails" aria-label="Latch guardrails">
-        <li>automatic on PR open</li>
-        <li>different reviewer identity</li>
-        <li>max three fix cycles</li>
-        <li>never merges</li>
-      </ul>
-    </div>
-  </section>
+        <section class="doc-section" id="boundaries" data-section>
+          <p class="section-kicker">Safety boundaries</p>
+          <h2>Built to stop</h2>
+          <p class="section-lede">Latch automates the review loop without taking the final repository decision away from you.</p>
+          <div class="boundary-table">
+            <div class="boundary-row"><strong>Human merge</strong><p>Neither workflow contains a merge step.</p></div>
+            <div class="boundary-row"><strong>Anti-tamper</strong><p>The fixer skips changes to <code>.github/workflows/</code> and <code>.latch/</code>.</p></div>
+            <div class="boundary-row"><strong>Public-repo guard</strong><p>Fork and draft PRs are rejected before provider credentials load; same-repo branch writers remain inside your trust boundary.</p></div>
+            <div class="boundary-row"><strong>Bounded work</strong><p>Three unsuccessful fix cycles trigger an author mention and stop.</p></div>
+            <div class="boundary-row"><strong>Your infrastructure</strong><p>The workflows run in your GitHub Actions. Temporary Codex auth is removed after each fallback attempt.</p></div>
+          </div>
+        </section>
 
-  <section class="section" id="principles">
-    <div class="wrap principles-grid">
-      <div class="principles-copy">
-        <p class="eyebrow">Why it is different</p>
-        <h2>Different agent. Different instructions. Different blind spots.</h2>
-        <p class="lede">Point the reviewer at a model unlike the one that wrote the PR. Then teach it the failures your codebase has already survived.</p>
-        <p class="plain">Latch keeps that institutional scar tissue in a versioned doctrine—not in a magical prompt you cannot inspect. The community doctrine library is the part that gets sharper over time.</p>
-      </div>
-      <div class="doctrine" aria-label="Example Latch review doctrine">
-        <div class="doctrine-head">skeptical-senior-engineer.md</div>
-        <pre><span class="comment"># Green CI proves only what CI knows.</span>
-
-<span class="rule">01</span>  Falsify the PR's claims.
-<span class="rule">02</span>  Distrust regenerated goldens.
-<span class="rule">03</span>  Find every producer and consumer.
-<span class="rule">04</span>  State the concrete failure scenario.</pre>
+        <section class="doc-section" aria-label="Install Latch now">
+          <div class="final-cta">
+            <p class="section-kicker">Ready when your next PR is</p>
+            <h2>Add the independent pass.</h2>
+            <p>Install once. Every new pull request enters the bounded review and fix loop automatically.</p>
+            <div class="command final-command">
+              <code><span class="shell-prompt">$</span>npx github:nishantkumar1292/latch init --codex-fallback</code>
+              <button class="copy-button" type="button" data-copy="npx github:nishantkumar1292/latch init --codex-fallback" aria-label="Copy install command">Copy</button>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
-  </section>
+  </main>
 
-  <section class="section pricing" id="pricing">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">Use it</p>
-        <h2>The whole loop is free. Hosting is the convenience.</h2>
-      </div>
-      <div class="offers">
-        <article class="offer primary">
-          <span class="offer-label">Open source · bring your subscription</span>
-          <div class="offer-price">$0 <small>forever</small></div>
-          <p>Use your existing Claude Pro/Max coding-agent subscription—or an API key. Latch charges only when you choose the hosted gate.</p>
-          <a class="btn btn-primary" data-gh href="https://github.com/nishantkumar1292/latch">Install from GitHub ↗</a>
-        </article>
-        <article class="offer">
-          <span class="offer-label">Hosted · coming next</span>
-          <div class="offer-price">$49 <small>/ active repo / month</small></div>
-          <p>No workflow file, token, or runner to manage. Includes 25 gated PRs. Join the design-partner list.</p>
-          <a class="btn" id="hostedCta" href="#">Join the waitlist</a>
-        </article>
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <span>© <span id="year">2026</span> Latch · FSL-1.1-Apache-2.0</span>
+      <div class="footer-links">
+        <a href="https://github.com/nishantkumar1292/latch">GitHub</a>
+        <a href="https://github.com/nishantkumar1292/latch/blob/master/LICENSE.md">License</a>
+        <a href="mailto:hello@latchgate.dev">Contact</a>
       </div>
     </div>
-  </section>
+  </footer>
 
-  <section class="section faq" id="faq">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">Three honest answers</p>
-        <h2>The trust boundary is the product.</h2>
-      </div>
-      <div class="faq-list">
-        <details>
-          <summary>Isn't this still AI reviewing AI?</summary>
-          <div class="answer"><p>Yes. It only helps if the reviewer is independent of the author: separate context, adversarial doctrine, and ideally a different model family. Latch makes that mismatch a setting instead of pretending two prompts are two independent minds.</p></div>
-        </details>
-        <details>
-          <summary>What happens when the reviewer is wrong?</summary>
-          <div class="answer"><p>The fixer can refuse a finding with reasons and leave it open for a human. The verdict is non-blocking by default, and the loop stops after three fix cycles instead of thrashing.</p></div>
-        </details>
-        <details>
-          <summary>Can Latch merge or rewrite its own rules?</summary>
-          <div class="answer"><p>No. A human always merges. The fixer also skips any PR that changes Latch's workflows or policy, so the loop cannot edit the rules governing itself.</p></div>
-        </details>
-      </div>
-    </div>
-  </section>
-</main>
+  <script>
+    "use strict";
 
-<footer class="site-footer">
-  <div class="wrap footer-in">
-    <span>© <span id="year">2026</span> Latch · FSL-1.1-Apache-2.0</span>
-    <div class="footer-links">
-      <a data-gh href="https://github.com/nishantkumar1292/latch">GitHub</a>
-      <a data-license href="https://github.com/nishantkumar1292/latch/blob/master/LICENSE.md">License</a>
-      <a id="contactLink" href="mailto:hello@latchgate.dev">Contact</a>
-    </div>
-  </div>
-</footer>
+    document.getElementById("year").textContent = String(new Date().getFullYear());
 
-<script>
-"use strict";
-var CONFIG = {
-  GITHUB_URL: "https://github.com/nishantkumar1292/latch",
-  WAITLIST_URL: "https://tally.so/r/q474M7",
-  PAYMENT_LINK_URL: "",
-  CONTACT_EMAIL: "hello@latchgate.dev"
-};
+    function fallbackCopy(value, done) {
+      var field = document.createElement("textarea");
+      field.value = value;
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      try { document.execCommand("copy"); done(); } catch (error) {}
+      field.remove();
+    }
 
-(function(){
-  var doc = document.documentElement;
-
-  document.querySelectorAll("[data-gh]").forEach(function(link){ link.href = CONFIG.GITHUB_URL; });
-  document.querySelectorAll("[data-license]").forEach(function(link){ link.href = CONFIG.GITHUB_URL.replace(/\/$/, "") + "/blob/master/LICENSE.md"; });
-  document.getElementById("contactLink").href = "mailto:" + CONFIG.CONTACT_EMAIL;
-  document.getElementById("year").textContent = String(new Date().getFullYear());
-
-  var hosted = document.getElementById("hostedCta");
-  if (CONFIG.PAYMENT_LINK_URL) {
-    hosted.href = CONFIG.PAYMENT_LINK_URL;
-    hosted.textContent = "Get the hosted gate";
-  } else {
-    hosted.href = CONFIG.WAITLIST_URL;
-    hosted.textContent = "Join the waitlist";
-  }
-
-  var themeButton = document.getElementById("themeButton");
-  try {
-    var savedTheme = localStorage.getItem("latch-theme");
-    if (savedTheme === "dark" || savedTheme === "light") doc.dataset.theme = savedTheme;
-  } catch (error) {}
-  themeButton.addEventListener("click", function(){
-    var explicit = doc.dataset.theme;
-    var dark = explicit ? explicit === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    doc.dataset.theme = dark ? "light" : "dark";
-    try { localStorage.setItem("latch-theme", doc.dataset.theme); } catch (error) {}
-  });
-
-  document.querySelectorAll(".copy-command").forEach(function(button){
-    button.addEventListener("click", function(){
-      var value = button.dataset.copy;
-      var complete = function(){
-        var label = button.querySelector(".copy-label");
-        button.classList.add("copied");
-        label.textContent = "Copied";
-        setTimeout(function(){ button.classList.remove("copied"); label.textContent = "Copy"; }, 1500);
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(value).then(complete, function(){ fallbackCopy(value, complete); });
-      } else {
-        fallbackCopy(value, complete);
-      }
+    document.querySelectorAll("[data-copy]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        var value = button.getAttribute("data-copy");
+        var original = button.textContent;
+        var done = function() {
+          button.classList.add("copied");
+          button.textContent = "Copied";
+          window.setTimeout(function() {
+            button.classList.remove("copied");
+            button.textContent = original;
+          }, 1400);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value).then(done, function() { fallbackCopy(value, done); });
+        } else {
+          fallbackCopy(value, done);
+        }
+      });
     });
-  });
 
-  function fallbackCopy(value, complete){
-    var area = document.createElement("textarea");
-    area.value = value;
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    try { document.execCommand("copy"); complete(); } catch (error) {}
-    area.remove();
-  }
-
-  var reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var debate = document.getElementById("debate");
-  var turns = [
-    document.getElementById("turnReviewOne"),
-    document.getElementById("turnFixOne"),
-    document.getElementById("turnReviewTwo"),
-    document.getElementById("turnRefuse")
-  ];
-  var decision = document.getElementById("decision");
-  var playhead = document.getElementById("playhead");
-  var clock = document.getElementById("debateClock");
-  var total = 17000;
-  var thresholds = [600, 3800, 7000, 9600];
-
-  function render(elapsed){
-    turns.forEach(function(turn, index){ turn.classList.toggle("on", elapsed >= thresholds[index]); });
-    decision.classList.toggle("on", elapsed >= 12500);
-    playhead.style.transform = "scaleX(" + Math.min(1, elapsed / total).toFixed(4) + ")";
-    clock.textContent = "00:" + String(Math.floor(elapsed / 1000)).padStart(2, "0");
-  }
-
-  if (reducedMotion) {
-    render(total - 1);
-  } else {
-    var elapsed = 0;
-    var last = performance.now();
-    var visible = true;
     if ("IntersectionObserver" in window) {
-      new IntersectionObserver(function(entries){ visible = entries[0].isIntersecting; }, {threshold:.1}).observe(debate);
+      var links = Array.from(document.querySelectorAll(".side-nav a"));
+      var sections = document.querySelectorAll("[data-section]");
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (!entry.isIntersecting) return;
+          links.forEach(function(link) {
+            link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id);
+          });
+        });
+      }, { rootMargin: "-18% 0px -68% 0px", threshold: 0 });
+      sections.forEach(function(section) { observer.observe(section); });
     }
-    function frame(now){
-      var delta = now - last;
-      last = now;
-      if (visible) {
-        elapsed = (elapsed + delta) % total;
-        render(elapsed);
-      }
-      requestAnimationFrame(frame);
-    }
-    render(0);
-    requestAnimationFrame(frame);
-  }
-})();
-</script>
+  </script>
 </body>
 </html>
