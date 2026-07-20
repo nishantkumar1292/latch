@@ -532,7 +532,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review.outputs.pr }}
-        run: gh workflow run latch-fix.yml --repo "${{ github.repository }}" -f pr="$PR" -f reviewer=codex
+        run: |
+          set -euo pipefail
+          # Dispatch the workflow definition from the PR head. During a Latch
+          # workflow upgrade, the default-branch definition may not know about
+          # newer inputs yet (GitHub otherwise rejects them with HTTP 422).
+          head_ref=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq .head.ref)
+          gh workflow run latch-fix.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$head_ref" \
+            -f pr="$PR" \
+            -f reviewer=codex
 
   review-on-demand:
     # On-demand re-review: comment "@latch review" as a top-level PR comment or

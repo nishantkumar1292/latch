@@ -32,6 +32,8 @@ test('every provider entry point rejects fork PRs before model execution', () =>
 
 test('Codex findings dispatch the scoped fixer and the loop re-reviews updates', () => {
   assert.match(review, /types: \[opened, synchronize, reopened, ready_for_review\]/);
+  assert.match(review, /head_ref=.*\.head\.ref/);
+  assert.match(review, /--ref "\$head_ref"/);
   assert.match(review, /-f reviewer=codex/);
   assert.match(fix, /Finding source: claude, codex, or auto/);
   assert.match(fix, /latch-reviewer:codex/);
