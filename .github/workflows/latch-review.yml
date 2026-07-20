@@ -7,10 +7,8 @@ name: Latch Review
 # (human- or agent-authored) to mergeable, then STOPS. Latch never merges — a
 # human always merges. Powered by anthropics/claude-code-action@v1.
 #
-# This file is a TEMPLATE installed by `latch init` into a customer repo's
-# .github/workflows/. It is generalized, byte-for-byte, from a production
-# review⇄fix loop; the event mechanics below were debugged in production and
-# MUST NOT be re-invented — read the comments before changing anything.
+# This file is installed by `latch init` into a repository's
+# .github/workflows/. Read the event-mechanics comments before changing it.
 #
 # ── AUTH (read this or the loop will not turn) ──────────────────────────────
 # The review MUST post as `claude[bot]` — the Claude GitHub App. That is not
@@ -35,9 +33,8 @@ name: Latch Review
 #                        the code shares its blind spots; a different model
 #                        decorrelates the error. That is the whole point.
 #   LATCH_REVIEW_EFFORT  default xhigh            — reasoning effort for the
-#                        REVIEW pass. The review is the high-value doctrine pass
-#                        and the source deployment ran it at xhigh; keep it high
-#                        for stakes-heavy repos (lower it to cut cost).
+#                        REVIEW pass. Keep it high for stakes-heavy repos (lower
+#                        it to reduce model usage).
 #   LATCH_EFFORT         default high             — reasoning effort for the
 #                        FIXER pass (read by latch-fix.yml).
 #   LATCH_MAX_TURNS      default 80               — agent turn budget per run.
@@ -66,8 +63,8 @@ on:
 # older run. The group MUST include the event name: the reviewer's own inline
 # comments fire pull_request_review_comment events, and if those runs shared a
 # group with the pull_request run they would cancel the reviewer mid-post
-# (observed in production: several comments posted, then self-cancelled before
-# the summary). The dispatch fallback keeps a manual re-review scoped to its own
+# (otherwise comments can cancel the reviewer before it posts the summary). The
+# dispatch fallback keeps a manual re-review scoped to its own
 # PR rather than colliding across dispatches.
 concurrency:
   group: latch-review-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr }}

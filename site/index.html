@@ -199,6 +199,21 @@
     .boundary-row strong{font-size:.84rem}.boundary-row p{color:var(--copy);font-size:.85rem}
     .boundary-row code{font-family:var(--mono);font-size:.75rem}
 
+    .pricing-grid{display:grid;grid-template-columns:1fr 1fr;margin-top:38px;border:1px solid var(--rule);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+    .plan{display:flex;flex-direction:column;min-width:0;padding:28px}
+    .plan+.plan{border-left:1px solid var(--rule)}
+    .plan-top{display:flex;align-items:center;gap:10px}
+    .plan-name{font-size:.94rem;font-weight:650}
+    .plan-badge{margin-left:auto;padding:4px 7px;border:1px solid #cdd6ff;border-radius:999px;background:var(--blue-wash);color:var(--blue);font-family:var(--mono);font-size:.56rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+    .plan-price{display:flex;align-items:baseline;gap:8px;margin-top:22px}
+    .plan-price strong{font-size:clamp(2.7rem,6vw,4.2rem);font-weight:600;letter-spacing:-.065em;line-height:.9}
+    .plan-price span{max-width:105px;color:var(--muted);font-size:.72rem;line-height:1.35}
+    .plan-copy{min-height:72px;margin-top:18px;color:var(--copy);font-size:.86rem;line-height:1.6}
+    .plan-details{margin:18px 0 24px;border-top:1px solid var(--rule)}
+    .plan-details li{padding:10px 0;border-bottom:1px solid var(--rule);color:var(--copy);font-size:.78rem}
+    .plan-details li::before{content:"✓";margin-right:8px;color:var(--pass);font-weight:700}
+    .plan .button{align-self:flex-start;margin-top:auto}
+
     .final-cta{margin-top:16px;padding:52px;border:1px solid var(--rule);border-radius:14px;background:var(--surface);text-align:center;box-shadow:var(--shadow)}
     .final-cta h2{max-width:12ch;margin-inline:auto}.final-cta p{max-width:520px;margin:18px auto 0;color:var(--copy)}
     .final-command{width:min(560px,100%);margin:25px auto 0}
@@ -236,6 +251,10 @@
       .capture{grid-column:1 / -1;margin-left:0}
       .effects-list::before{left:20px;bottom:150px}
       .boundary-row{grid-template-columns:1fr;gap:5px}
+      .pricing-grid{grid-template-columns:1fr}
+      .plan{padding:24px 20px}
+      .plan+.plan{border-top:1px solid var(--rule);border-left:0}
+      .plan-copy{min-height:0}
       .final-cta{padding:40px 18px}
       .footer-inner{align-items:flex-start;flex-direction:column;padding:22px 0}
       .footer-links{margin-left:0}
@@ -259,6 +278,7 @@
         <a href="#install">Install</a>
         <a href="#agent">Use with an agent</a>
         <a href="#effect">See the effect</a>
+        <a href="#pricing">Pricing</a>
         <a class="github-link" href="https://github.com/nishantkumar1292/latch">GitHub ↗</a>
       </nav>
     </div>
@@ -301,6 +321,7 @@
           <li><a href="#install" class="active">Get started</a></li>
           <li><a href="#agent">Use with an agent</a></li>
           <li><a href="#effect">See the effect</a></li>
+          <li><a href="#pricing">Pricing</a></li>
           <li><a href="#boundaries">Boundaries</a></li>
         </ul>
       </aside>
@@ -459,6 +480,43 @@ changes are ready.</pre>
               </figure>
             </li>
           </ol>
+        </section>
+
+        <section class="doc-section" id="pricing" data-section>
+          <p class="section-kicker">Pricing</p>
+          <h2>Choose where Latch runs</h2>
+          <p class="section-lede">Run the complete loop yourself today, or join the waitlist for a managed GitHub App.</p>
+
+          <div class="pricing-grid">
+            <article class="plan">
+              <div class="plan-top">
+                <h3 class="plan-name">Open source</h3>
+              </div>
+              <div class="plan-price"><strong>$0</strong><span>forever</span></div>
+              <p class="plan-copy">Run Latch in your own GitHub Actions with your Claude subscription token or Anthropic API key.</p>
+              <ul class="plan-details">
+                <li>Complete review and fix loop</li>
+                <li>Your repository, runner, and credential</li>
+                <li>Human always merges</li>
+              </ul>
+              <a class="button" href="#install">Install open source</a>
+            </article>
+
+            <article class="plan">
+              <div class="plan-top">
+                <h3 class="plan-name">Hosted</h3>
+                <span class="plan-badge">Waitlist</span>
+              </div>
+              <div class="plan-price"><strong>$49</strong><span>per active repo / month</span></div>
+              <p class="plan-copy">Use the managed GitHub App without maintaining workflow files, runners, or a repository token.</p>
+              <ul class="plan-details">
+                <li>25 gated pull requests included</li>
+                <li>$8 per additional gated pull request</li>
+                <li>Managed setup and inference</li>
+              </ul>
+              <a class="button primary" href="https://tally.so/r/q474M7">Join the hosted waitlist</a>
+            </article>
+          </div>
         </section>
 
         <section class="doc-section" id="boundaries" data-section>
