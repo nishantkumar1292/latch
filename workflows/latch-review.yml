@@ -288,7 +288,20 @@ jobs:
         run: |
           set -euo pipefail
           enabled=$(printf '%s' "$CODEX_FALLBACK" | tr '[:upper:]' '[:lower:]')
-          if [ -s "$RUNNER_TEMP/latch-verdict.txt" ]; then
+          verdict_file="$RUNNER_TEMP/latch-verdict.txt"
+          claude_valid=false
+          if [ -s "$verdict_file" ]; then
+            verdict=$(sed -n '1{s/\r$//;p;}' "$verdict_file")
+            summary=$(sed -n '2{s/\r$//;p;}' "$verdict_file")
+            case "$verdict" in
+              MERGE|MERGE-WITH-FIXES|DO-NOT-MERGE)
+                if [ -n "$summary" ] && [ "${#summary}" -le 140 ]; then
+                  claude_valid=true
+                fi
+                ;;
+            esac
+          fi
+          if [ "$claude_valid" = "true" ]; then
             echo "use_codex=false" >> "$GITHUB_OUTPUT"
             echo "Claude produced a verdict; Codex fallback is not needed."
           elif [ "$enabled" = "true" ]; then
@@ -481,22 +494,21 @@ jobs:
             state=error
             desc="Latch review did not produce a verdict — see the run log."
           else
-            # The reviewer writes the verdict on its own line and a summary on the
-            # next. Be forgiving about how it formatted that: strip CR + markdown
-            # wrappers (backticks/asterisks/#), uppercase, and SCAN for the first
-            # verdict token rather than pinning it to line 1 — so a leading blank
-            # line or a verdict wrapped in `code`/**bold** still resolves instead
-            # of falling straight to `error`. Longer tokens come first in the
-            # alternation so MERGE-WITH-FIXES is not clipped to MERGE.
-            norm=$(tr -d '\r`*#' < "$verdict_file" | tr '[:lower:]' '[:upper:]')
-            verdict=$(printf '%s\n' "$norm" | grep -Eom1 'MERGE-WITH-FIXES|DO-NOT-MERGE|MERGE' || true)
-            summary=$(grep -v '^[[:space:]]*$' "$verdict_file" | sed -n '2p' | tr -d '\r' || true)
+            # Both providers are required to write the exact two-line contract.
+            # Do not search arbitrary output for a verdict token: partial or
+            # malformed Claude output is what triggers the Codex fallback.
+            verdict=$(sed -n '1{s/\r$//;p;}' "$verdict_file")
+            summary=$(sed -n '2{s/\r$//;p;}' "$verdict_file")
             case "$verdict" in
-              MERGE) state=success ;;
-              MERGE-WITH-FIXES|DO-NOT-MERGE) state=failure ;;
+              MERGE)
+                if [ -n "$summary" ] && [ "${#summary}" -le 140 ]; then state=success; else state=error; fi
+                ;;
+              MERGE-WITH-FIXES|DO-NOT-MERGE)
+                if [ -n "$summary" ] && [ "${#summary}" -le 140 ]; then state=failure; else state=error; fi
+                ;;
               *) state=error ;;
             esac
-            if [ -n "$verdict" ]; then
+            if [ "$state" != "error" ]; then
               desc="${verdict}: ${summary}"
             else
               desc="Latch review did not produce a valid verdict — see the run log."
@@ -516,8 +528,15 @@ jobs:
       - name: Verify that a reviewer completed
         if: always()
         run: |
-          if [ ! -s "$RUNNER_TEMP/latch-verdict.txt" ]; then
-            echo "No Claude or Codex verdict was produced."
+          verdict_file="$RUNNER_TEMP/latch-verdict.txt"
+          verdict=$(sed -n '1{s/\r$//;p;}' "$verdict_file" 2>/dev/null || true)
+          summary=$(sed -n '2{s/\r$//;p;}' "$verdict_file" 2>/dev/null || true)
+          case "$verdict" in
+            MERGE|MERGE-WITH-FIXES|DO-NOT-MERGE) ;;
+            *) echo "No valid Claude or Codex verdict was produced."; exit 1 ;;
+          esac
+          if [ -z "$summary" ] || [ "${#summary}" -gt 140 ]; then
+            echo "The reviewer verdict summary is missing or exceeds 140 characters."
             exit 1
           fi
 

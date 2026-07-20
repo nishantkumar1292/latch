@@ -558,7 +558,13 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$(git status --porcelain -- .github/workflows .latch)" ]; then
+          if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
+            echo "::error::Codex created a commit; only the trusted finalizer may commit fixes."
+            exit 1
+          fi
+          protected_diff=$(git diff --name-only "$BASE_SHA" -- .github/workflows .latch)
+          protected_status=$(git status --porcelain -- .github/workflows .latch)
+          if [ -n "$protected_diff$protected_status" ]; then
             echo "::error::Codex changed Latch's protected workflows or policy."
             exit 1
           fi

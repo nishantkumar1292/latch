@@ -46,6 +46,8 @@ test('fixer captures threads before Claude and validates both provider checkouts
   assert.match(fix, /protected workflows or policy/);
   assert.match(fix, /env -u GH_TOKEN -u GITHUB_TOKEN codex/);
   assert.match(fix, /unresolveReviewThread/);
+  assert.match(fix, /git rev-parse HEAD.*BASE_SHA/);
+  assert.match(fix, /git diff --name-only "\$BASE_SHA" -- \.github\/workflows \.latch/);
 });
 
 test('workflow templates retain the anti-tamper and human-merge boundaries', () => {
