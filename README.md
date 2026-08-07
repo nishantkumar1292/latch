@@ -188,6 +188,7 @@ Latch is configured with a handful of workflow variables plus a per-repo policy 
 | `LATCH_EFFORT` | The fixer's reasoning effort (default `high`). |
 | `LATCH_MAX_TURNS` | Agent turn budget per run (default `80`). |
 | `LATCH_MAX_FIX_CYCLES` | Max fixer cycles per PR before human escalation (default `3`). |
+| `LATCH_ALERT` | `on` (default) or `off` — whether a run that produces no verdict opens/updates a `latch-alert` issue. See below. |
 | verdict status mode | `non-blocking` (default) or `required` — see below. |
 
 **`.latch/policy.yml`** — your review doctrine and repo landmines as versioned,
@@ -214,6 +215,36 @@ When a team has watched Latch on its own repos and trusts its false-positive rat
 **it can mark the status required itself** — in a branch ruleset / required-status-check
 setting — and turn Latch into a hard gate on its own terms. That is a decision you
 earn into, not a default we impose.
+
+---
+
+## The engine status — a gate that reports on itself
+
+A gate you cannot see failing is worse than no gate. The failure that motivated this
+is quiet by construction: when the reviewer's model allowance is exhausted, OIDC
+succeeds, the app token succeeds, and the action returns
+`{"subtype":"success","is_error":true,"num_turns":1,"duration_ms":613}` with the error
+body suppressed. In GitHub's UI that is indistinguishable from an ordinary failing
+check — in the incident that prompted this, every review in a repo failed for four
+hours before anyone noticed.
+
+So every review publishes a second commit status, **`latch/engine`**, carrying what
+actually ran:
+
+```
+model=claude-opus-4-8 effort=xhigh turns=25 ms=342004 ok
+```
+
+It is **always green** — a nameplate, never a second gate — and the trailing token is
+the outcome class: `ok` (a verdict landed), `error` (the engine reported `is_error`),
+or `no-verdict` (the engine claims it was fine but wrote no parseable verdict). Values
+the run did not report show as `?`. "Which model reviewed this PR?" is now an artifact
+of the run rather than something inferred from a checkout.
+
+And when a run produces **no valid verdict**, Latch opens (or comments on) a
+`latch-alert` issue with the run URL, the engine line, the failure fingerprint, and
+the remediation — then closes it on the first run that recovers. Set `LATCH_ALERT` to
+`off` to turn that off.
 
 ---
 

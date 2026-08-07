@@ -1,4 +1,4 @@
-# latch:template-version=0.1.0
+# latch:template-version=0.2.0
 name: Latch Fix
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -70,8 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write # cap escalation posts a PR comment
+      issues: write # PR conversation comments are issue comments to the API
       actions: read
     outputs:
       should_run: ${{ steps.decide.outputs.should_run }}
@@ -79,6 +79,11 @@ jobs:
       cycle: ${{ steps.decide.outputs.cycle }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # This job runs with NO repository checkout (it only makes API calls), so
+      # `gh pr view`/`gh pr comment` (cap branch below) cannot infer the repo
+      # from a local git dir and would die "not a git repository". GH_REPO gives
+      # gh explicit repo context; the explicit-path `gh api` calls ignore it.
+      GH_REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
       OWNER: ${{ github.repository_owner }}
       REPO: ${{ github.event.repository.name }}
