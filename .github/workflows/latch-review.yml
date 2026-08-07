@@ -456,6 +456,25 @@ jobs:
           # reddens the job.
           echo "latch/engine = ${engine_line} (cost_usd=${cost})" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
 
+          # ── one guaranteed false positive, suppressed ─────────────────────
+          # claude-code-action refuses to run when the workflow file it is
+          # running from differs from the copy on the default branch ("Workflow
+          # validation failed... must have identical content"), so a PR that
+          # EDITS THIS FILE always produces no verdict. That is the action's own
+          # anti-tamper design — a PR must not be able to rewrite the reviewer
+          # that reviews it — not an engine failure. latch/merge-gate stays
+          # `error` and latch/engine stays honest, but alerting on it would cry
+          # wolf on every workflow PR until nobody reads the alert, which is the
+          # exact failure this alert exists to prevent. Observed on the PR that
+          # introduced this block. A `gh` failure here leaves self_edit=0, i.e.
+          # we alert — fail loud, not silent.
+          self_edit=0
+          if gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' 2>/dev/null \
+               | grep -Fqx '.github/workflows/latch-review.yml'; then
+            self_edit=1
+            echo "latch: this PR edits the review workflow, which the action declines to run — suppressing latch-alert."
+          fi
+
           # ── latch-alert — make a silent gate loud ─────────────────────────
           # Fires on exactly the branches that set state=error above: the gate
           # ran but produced no usable verdict. Deliberately NOT keyed off the
@@ -466,7 +485,7 @@ jobs:
           # GitHub's search index is eventually consistent and a burst of failing
           # PRs would open a duplicate issue each. `pull_request==null` filters
           # out PRs, which this endpoint also returns.
-          if [ "$ALERT" != "off" ] && [ "$verdict_ok" != "1" ]; then
+          if [ "$ALERT" != "off" ] && [ "$verdict_ok" != "1" ] && [ "$self_edit" != "1" ]; then
             (
               gh label create latch-alert --color B60205 \
                 --description "Latch: the merge gate produced no verdict" --force >/dev/null 2>&1 || true
