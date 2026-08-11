@@ -38,6 +38,11 @@ test('a finished fixer run is salvaged, not discarded', () => {
   assert.match(FIX, /steps\.fixer\.outputs\.execution_file/);
   assert.match(FIX, /AGENT_EXECUTION_FILE/);
   assert.match(FIX, /nothing to salvage/);
+  // The whole rail hangs off an undocumented contract with an action pinned to a
+  // MOVING tag, so the template records the version it was verified against —
+  // otherwise a release that renames the output or reshapes the log turns the
+  // rail off silently and nobody knows what it last worked with.
+  assert.match(FIX, /claude-code-action v\d+\.\d+\.\d+ \([0-9a-f]{7,}/);
 });
 
 test("the salvage filter reads claude-code-action's real log shape", () => {
@@ -227,7 +232,16 @@ test('settle re-opens everything the agent resolved when nothing was pushed', ()
 
 test('this repo gates itself with the same rails it ships', () => {
   const installed = read('.github/workflows/latch-fix.yml');
-  for (const rail of [/git rebase FETCH_HEAD/, /unresolveReviewThread/, /latch-open-threads\.txt/]) {
+  for (const rail of [
+    /git rebase FETCH_HEAD/,
+    /unresolveReviewThread/,
+    /latch-open-threads\.txt/,
+    // One literal borrowed from someone else's action gates the salvage rail in
+    // this copy too. A rename must break CI here, not degrade quietly in a
+    // production run that bins a finished fix.
+    /steps\.fixer\.outputs\.execution_file/,
+    /claude-code-action v\d+\.\d+\.\d+ \([0-9a-f]{7,}/,
+  ]) {
     assert.match(installed, rail);
   }
 });

@@ -380,6 +380,16 @@ jobs:
         # salvage path below decides from that log whether the run actually
         # finished. Without this the action's post-hoc turn check discards a
         # complete, paid-for fix.
+        #
+        # That rail rides an UNDOCUMENTED contract with someone else's action:
+        # the `execution_file` output named here, plus the log shape the jq
+        # filter below reads (a top-level array of SDK messages whose `result`
+        # message carries subtype/is_error/num_turns). Both verified against
+        # anthropics/claude-code-action v1.0.190 (5ef2e55, 2026-08-10) — what
+        # the moving `@v1` pin above resolved to then. A release that renames
+        # the output or reshapes that log turns this rail off silently: finished
+        # work gets binned again while CI stays green. Re-verify both when the
+        # pin moves under us.
         if: success() || (failure() && steps.fixer.outputs.execution_file != '')
         env:
           AGENT_STEP_OUTCOME: ${{ steps.fixer.outcome }}
