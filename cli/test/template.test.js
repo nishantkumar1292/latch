@@ -64,15 +64,17 @@ test("the salvage filter reads claude-code-action's real log shape", () => {
 });
 
 test('thread resolution is mechanically coupled to a landed fix', () => {
-  // The prompt forbids resolving a thread the fixer only replied to, but a
-  // prompt is advisory: the job snapshots the open threads beforehand and
-  // re-opens any the fixer resolved without a fix commit reaching the branch.
+  // The agent must not resolve anything: its side effects happen mid-run and
+  // would outlive a run that dies before pushing. The job owns resolution, in
+  // both directions, from the snapshot it took before the agent started.
   assert.match(FIX, /latch-open-threads\.txt/);
   assert.match(FIX, /unresolveReviewThread/);
-  // The re-open step must also run when the push failed or the job was
-  // cancelled — that is precisely when a resolution has no fix behind it.
-  assert.match(FIX, /Re-open threads resolved without a landed fix\n\s+#[\s\S]*?if: always\(\)/);
-  assert.match(FIX, /NEVER resolve a thread you did not fix/);
+  assert.match(FIX, /Resolving \$tid: its fix is on the branch/);
+  // It must also run when the push failed or the job was cancelled — that is
+  // precisely when a resolution has no commit behind it.
+  assert.match(FIX, /Settle review threads against what actually landed\n\s+#[\s\S]*?if: always\(\)/);
+  assert.match(FIX, /do NOT resolve any of them/);
+  assert.match(FIX, /NEVER resolve a thread/);
 });
 
 test('this repo gates itself with the same rails it ships', () => {

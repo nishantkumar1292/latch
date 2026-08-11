@@ -38,12 +38,14 @@ name: Latch Fix
 #     of 80, sixteen minutes of completed work thrown away). The push step
 #     salvages a run whose execution log shows it finished, pushes it, and says
 #     so loudly instead of discarding it and blaming the cap.
-#   * RESOLUTION IS COUPLED TO A LANDED FIX — a resolved thread is this loop's
-#     only signal that a finding was ACTIONED, so the prompt forbids resolving a
-#     thread the fixer merely replied to. Prompts are advisory, so the job also
-#     enforces it mechanically: it snapshots the open review-bot threads before
-#     the agent runs and re-opens any of them the fixer resolved without a fix
-#     commit landing on the branch.
+#   * RESOLUTION FOLLOWS THE PUSH, AND ONLY A LANDED FIX — a resolved thread is
+#     this loop's only signal that a finding was ACTIONED. The agent is told not
+#     to resolve anything (its side effects would outlive a run that dies before
+#     pushing: seen in production as threads resolved citing a commit that never
+#     left the runner), and because prompts are advisory the job owns resolution
+#     outright — it snapshots the open review-bot threads before the agent runs,
+#     then AFTER a successful push resolves the ones whose fix landed and
+#     re-opens, with a correction on the thread, any resolved without one.
 #
 # NOTE: `pull_request_review` always uses the workflow file from the DEFAULT
 # branch, so this file only takes effect once merged to the default branch and
@@ -317,28 +319,31 @@ jobs:
             Then SHA=$(git rev-parse --short HEAD). If you fixed nothing (every
             thread was case (b)), make NO commit.
 
-            STEP 5 — reply to and resolve threads (GITHUB_TOKEN -> your replies
-            post as github-actions[bot], which cannot re-trigger the review):
-              For a thread you FIXED, reply then resolve. Keep the reply's
-              opening words EXACTLY "Fixed in <SHA>" — the job greps your reply
-              for that phrase to confirm the resolution is backed by a commit,
-              and re-opens the thread if it is missing:
+            STEP 5 — reply to threads; do NOT resolve any of them (GITHUB_TOKEN
+            -> your replies post as github-actions[bot], which cannot re-trigger
+            the review):
+              For a thread you FIXED, reply — and ONLY reply. Open with exactly
+              "Fixed in <SHA>: " so a human can trace the claim; the job
+              resolves the thread itself once that commit is pushed. You have
+              not pushed anything, so a thread you resolve here would claim a
+              fix that does not exist yet — and if this run dies before its
+              push, that claim outlives the commit:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="Fixed in <SHA>: <one line on what changed and why it resolves the finding>."
-                gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' -F t=<threadId>
               For a thread you DISAGREE with or that belongs elsewhere, reply with
               your reasoning and do NOT resolve it:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="<why no change is needed here / where the action belongs>. Leaving this unresolved for a human."
             Every unresolved review-bot thread must get exactly one reply from you.
 
-            NEVER resolve a thread you did not fix — not "to tidy up", not
-            because you replied to it, not because you judged it out of scope. A
+            NEVER resolve a thread — least of all one you did not fix. A
             resolved thread is this loop's only signal that a finding was
             ACTIONED, and a merge gate keyed on thread resolution reads a
             resolved triage reply as "handled": that is how an unactioned
-            finding disappears. A reply is not a fix. This is mechanically
-            enforced — the surrounding job re-opens every thread you resolve
-            without a fix commit landing on the branch, and says so on the PR —
-            so resolving without a SHA is wasted work, not a shortcut.
+            finding disappears. A reply is not a fix, and nothing you do is
+            durable until the surrounding job pushes. This is mechanically
+            enforced either way — after the push the job resolves the threads
+            whose fix landed, and re-opens (with a correction on the thread) any
+            that are resolved without one — so resolving anything yourself is
+            wasted work, not a shortcut.
 
             STEP 6 — STOP. Do not push, do not run any workflow, do not merge.
             Print a short summary: which threads you fixed (with SHA), which you
@@ -492,14 +497,17 @@ jobs:
 
           gh pr comment "$PR" --body "🤖 **Latch fix-cycle ${NEXT}.** Pushed \`${SHORT}\`${REBASE_NOTE} and re-dispatched the review. When the review comes back clean (no inline findings) the loop ends and this PR is ready for a human to merge. (Cap: ${MAX_CYCLES} fixer cycles.)${RACE_CAVEAT}${RESCUE_NOTE}"
 
-      - name: Re-open threads resolved without a landed fix
-        # The mechanical half of the resolution rail. The prompt forbids
-        # resolving a thread the fixer only replied to, but a prompt is
-        # advisory — this step is the guarantee. Of the threads that were open
-        # before this run (the snapshot), re-open every one the FIXER resolved
-        # unless a fix commit actually landed on the branch and its reply cites
-        # that commit. Runs on failure and cancellation too: a resolution whose
-        # fix never reached the branch is exactly the state we must not leave.
+      - name: Settle review threads against what actually landed
+        # The mechanical half of the resolution rail, and the ONLY place thread
+        # resolution happens — after the push, never during the agent's run.
+        # The agent replies mid-run; if it also resolved, the fix claim and the
+        # resolution would outlive a run that died before pushing (observed in
+        # production: threads resolved citing a commit that only ever existed on
+        # the runner). Of the threads that were open before this run (the
+        # snapshot), this resolves the ones whose fix landed and re-opens — with
+        # a correction posted on the thread — any that are resolved without one.
+        # Runs on failure and cancellation too: that is precisely when a
+        # resolution has no commit behind it.
         if: always()
         run: |
           set -euo pipefail
@@ -510,13 +518,13 @@ jobs:
             exit 0
           fi
 
-          # Threads resolved by the FIXER identity, with only the FIXER's own
-          # replies collected as the body to match against. GraphQL drops the
-          # "[bot]" suffix, and `resolvedBy` can come back null for a bot
-          # resolution, so accept both; a thread a HUMAN resolved names that
-          # human here and is left alone. Restricting the body to the fixer's
-          # replies matters: the reviewer's finding often quotes code or a diff,
-          # and a stray hex string there must not read as a fix citation.
+          # Every thread with its resolution state and ONLY the FIXER's own
+          # replies as the body to match against. GraphQL drops the "[bot]"
+          # suffix, and `resolvedBy` can come back null for a bot resolution, so
+          # accept both; a thread a HUMAN resolved names that human here and is
+          # left alone. Restricting the body to the fixer's replies matters: the
+          # reviewer's finding often quotes code or a diff, and a stray hex
+          # string there must not read as a fix citation.
           # shellcheck disable=SC2016  # $owner/$repo/$pr are GraphQL vars, kept literal
           gh api graphql -f query='
             query($owner:String!,$repo:String!,$pr:Int!){
@@ -527,15 +535,16 @@ jobs:
                 }}}}}' \
             -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" \
             --jq '.data.repository.pullRequest.reviewThreads.nodes[]
-                    | select(.isResolved==true)
-                    | select((.resolvedBy.login // "github-actions") | startswith("github-actions"))
-                    | [.id, ([.comments.nodes[]
+                    | select(.isResolved==false
+                             or ((.resolvedBy.login // "github-actions") | startswith("github-actions")))
+                    | [.id, .isResolved, ([.comments.nodes[]
                                | select((.author.login // "") | startswith("github-actions"))
                                | .body] | join(" "))] | @tsv' \
             > "$RUNNER_TEMP/latch-resolved.tsv"
 
           reopened=0
-          while IFS=$'\t' read -r tid blob <&3; do
+          settled=0
+          while IFS=$'\t' read -r tid state blob <&3; do
             [ -n "$tid" ] || continue
             # Only threads this run found OPEN — an earlier cycle's fixed and
             # resolved threads are none of our business.
@@ -563,19 +572,42 @@ jobs:
             fi
 
             if [ "$landed" = "true" ]; then
+              # The fix is on the branch. Resolve it HERE, after the push, even
+              # if the agent already did: resolution is the merge gate's signal
+              # and this step is the only place that knows what actually landed.
+              if [ "$state" = "false" ]; then
+                echo "Resolving $tid: its fix is on the branch."
+                # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
+                gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
+                  -F t="$tid" >/dev/null
+                settled=$(( settled + 1 ))
+              fi
               continue
             fi
+            if [ "$state" != "true" ]; then
+              continue  # open and unfixed — the correct state; leave it alone
+            fi
             echo "Re-opening $tid: resolved by the fixer with no landed fix commit cited."
+            # Correct the record ON THE THREAD as well. The agent replies and
+            # resolves mid-run, so when the run dies before pushing, the thread
+            # is left carrying a detailed "Fixed in <sha>" claim for a commit
+            # that only ever existed on the runner. Re-opening is not enough —
+            # the claim has to be contradicted where a human will read it.
+            # shellcheck disable=SC2016  # $t/$b are GraphQL vars, kept literal
+            gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' \
+              -F t="$tid" \
+              -F b="🔓 **Re-opened by Latch.** This thread was marked resolved, but no fix for it landed on this branch — the run changed no code, or it ended before its push. Any commit cited above is not on this branch. Treat the finding as open." >/dev/null || true
             # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
             gh api graphql -f query='mutation($t:ID!){ unresolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
               -F t="$tid" >/dev/null
             reopened=$(( reopened + 1 ))
           done 3< "$RUNNER_TEMP/latch-resolved.tsv"
 
+          echo "threads settled as fixed: $settled; re-opened: $reopened"
           if [ "$reopened" -gt 0 ]; then
-            gh pr comment "$PR" --body "🔓 **Latch re-opened ${reopened} review thread(s).** The fixer marked them resolved, but no fix commit for them landed on this branch — either it changed no code, or its push did not land. A resolved thread is this loop's signal that a finding was actioned, so resolving one without a fix would hide it from any merge gate keyed on thread resolution. They are open again for a human or the next fixer cycle."
+            gh pr comment "$PR" --body "🔓 **Latch re-opened ${reopened} review thread(s).** They were marked resolved, but no fix for them landed on this branch — either the run changed no code, or it ended before its push, so any commit those replies cite never reached the branch. A resolved thread is this loop's signal that a finding was actioned, so leaving them resolved would hide unactioned findings from any merge gate keyed on thread resolution. They are open again for a human or the next fixer cycle."
           else
-            echo "No threads to re-open — every fixer resolution is backed by a landed fix."
+            echo "Nothing to re-open — every resolution here is backed by a landed fix."
           fi
 
       - name: Report fixer failure
