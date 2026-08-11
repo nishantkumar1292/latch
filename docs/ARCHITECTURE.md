@@ -88,6 +88,18 @@ sequenceDiagram
    pass — never leaving a red tree. Toolchains it doesn't have installed (mobile
    builds) are declared plainly in the thread reply, with the re-dispatched review and
    the human merge as the backstop.
+6. **Resolution is coupled to a landed fix.** A resolved thread is the loop's only
+   signal that a finding was *actioned*, so resolving a thread the fixer merely replied
+   to would hide an unactioned finding from any merge gate keyed on thread resolution.
+   The prompt forbids it and the job **enforces** it: it snapshots the open reviewer
+   threads before the agent runs, and afterwards re-opens every one the fixer resolved
+   without a fix commit landing on the branch — announced on the PR, never silently.
+7. **Push races are recovered, not misdiagnosed.** The fixer works on a checkout that
+   can go stale under it: a human, another agent, or a base merge can push to the PR
+   branch mid-run, and its own push is then rejected non-fast-forward. The job rebases
+   the fix onto the new tip and retries **once**. A rebase *conflict* means the
+   competing push touched the same lines, which is a human's call — so it stops and
+   says so, naming the competing commit rather than blaming the turn cap.
 
 ## The fixer's judgment (STEP 2)
 
