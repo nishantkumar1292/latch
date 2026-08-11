@@ -87,7 +87,31 @@ sequenceDiagram
    `cargo fmt/clippy/test`, `npm lint/tsc/build`) and keeps a fix only if its checks
    pass — never leaving a red tree. Toolchains it doesn't have installed (mobile
    builds) are declared plainly in the thread reply, with the re-dispatched review and
-   the human merge as the backstop.
+   the human merge as the backstop. One exception, disclosed on the PR when it
+   happens: the race-rebase path in item 8 pushes the *combined* tree without
+   re-running the checks (they ran on the pre-race commit), because the check commands
+   are policy data only the agent resolves — there, too, the re-dispatched review and
+   the human merge are the backstop.
+6. **Resolution is coupled to a landed fix.** A resolved thread is the loop's only
+   signal that a finding was *actioned*, so resolving a thread the fixer merely replied
+   to would hide an unactioned finding from any merge gate keyed on thread resolution.
+   The prompt forbids it and the job **enforces** it: it snapshots the open reviewer
+   threads before the agent runs, and afterwards re-opens every one the fixer resolved
+   without a fix commit landing on the branch — announced on the PR, never silently.
+7. **A finished run is never binned.** `claude-code-action` re-checks the agent's
+   turn count *after* the run and fails the step when it exceeds `--max-turns` — even
+   when the agent itself returned success (seen live: 88 turns against a cap of 80,
+   discarding sixteen minutes of completed work and advising a human to raise the cap
+   after the money was spent). The cap is a runtime budget handed to the agent, so
+   when the post-hoc check disagrees the fixer reads the run's own execution log,
+   pushes the finished work if it completed, and says so loudly on the PR. Any run
+   whose log does *not* show a successful result still fails.
+8. **Push races are recovered, not misdiagnosed.** The fixer works on a checkout that
+   can go stale under it: a human, another agent, or a base merge can push to the PR
+   branch mid-run, and its own push is then rejected non-fast-forward. The job rebases
+   the fix onto the new tip and retries **once**. A rebase *conflict* means the
+   competing push touched the same lines, which is a human's call — so it stops and
+   says so, naming the competing commit rather than blaming the turn cap.
 
 ## The fixer's judgment (STEP 2)
 
