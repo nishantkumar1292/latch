@@ -26,6 +26,27 @@ name: Latch Fix
 # label) bounds it if it never converges; on the cap it escalates to a human and
 # stops.
 #
+# THREE RAILS ON THE FIXER'S SIDE EFFECTS (all three observed failing in production):
+#   * PUSH RACE — the fixer works on a checkout that can go stale under it. If
+#     anything else pushes to the PR branch while it runs, its push is rejected
+#     non-fast-forward and the fix dies on the runner. The push step therefore
+#     rebases onto the new tip and retries ONCE, and on a conflict it fails with
+#     a message that names the competing commit instead of guessing at causes.
+#   * FINISHED WORK IS NEVER BINNED — claude-code-action re-checks the agent's
+#     turn count after the run and fails the step when it exceeds --max-turns,
+#     even though the agent returned success (observed live: 88 against a cap
+#     of 80, sixteen minutes of completed work thrown away). The push step
+#     salvages a run whose execution log shows it finished, pushes it, and says
+#     so loudly instead of discarding it and blaming the cap.
+#   * RESOLUTION FOLLOWS THE PUSH, AND ONLY A LANDED FIX — a resolved thread is
+#     this loop's only signal that a finding was ACTIONED. The agent is told not
+#     to resolve anything (its side effects would outlive a run that dies before
+#     pushing: seen in production as threads resolved citing a commit that never
+#     left the runner), and because prompts are advisory the job owns resolution
+#     outright — it snapshots the open review-bot threads before the agent runs,
+#     then AFTER a successful push resolves the ones whose fix landed and
+#     re-opens, with a correction on the thread, any resolved without one.
+#
 # NOTE: `pull_request_review` always uses the workflow file from the DEFAULT
 # branch, so this file only takes effect once merged to the default branch and
 # cannot fully self-test from its own PR. Rehearse via the workflow_dispatch
@@ -264,7 +285,43 @@ jobs:
       - name: Record base sha
         run: echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
+      - name: Snapshot the open review threads
+        # Half of the resolution rail: record which review-bot threads are OPEN
+        # before the agent touches anything. "Re-open threads resolved without a
+        # landed fix" below acts on exactly this set, so a thread an EARLIER
+        # cycle legitimately fixed and resolved is never reconsidered here (its
+        # fix SHA is not in this run's commit range and it would be re-opened
+        # forever).
+        run: |
+          set -euo pipefail
+          # --paginate walks every page: a thread past the first hundred that
+          # went missing here would silently escape the settle step below.
+          # shellcheck disable=SC2016  # $owner/$repo/$pr are GraphQL vars, kept literal
+          gh api graphql --paginate -f query='
+            query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+              repository(owner:$owner,name:$repo){ pullRequest(number:$pr){
+                reviewThreads(first:100, after:$endCursor){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{
+                    id isResolved comments(first:1){ nodes{ author{ login } } }
+                }}}}}' \
+            -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                    | select(.isResolved==false)
+                    | [.id, (.comments.nodes[0].author.login // "")] | @tsv' \
+            > "$RUNNER_TEMP/latch-open-all.txt"
+          awk -F'\t' '$2=="claude" {print $1}' "$RUNNER_TEMP/latch-open-all.txt" \
+            > "$RUNNER_TEMP/latch-open-threads.txt"
+          echo "open review-bot threads before the fixer: $(wc -l < "$RUNNER_TEMP/latch-open-threads.txt")"
+          # An empty snapshot with open threads present means the reviewer
+          # identity is not `claude` in this deployment: the resolution guard
+          # below would then quietly do nothing, so say so loudly instead.
+          if [ ! -s "$RUNNER_TEMP/latch-open-threads.txt" ] && [ -s "$RUNNER_TEMP/latch-open-all.txt" ]; then
+            echo "::warning title=Latch resolution guard inactive::This PR has open review threads but none authored by \`claude\`, so nothing was snapshotted and thread resolution will not be checked. The loop requires the review to post as claude[bot]."
+          fi
+
       - name: Fixer agent
+        id: fixer
         uses: anthropics/claude-code-action@v1
         with:
           # Provide both credentials; the action uses whichever secret is
@@ -357,15 +414,36 @@ jobs:
             Then SHA=$(git rev-parse --short HEAD). If you fixed nothing (every
             thread was case (b)), make NO commit.
 
-            STEP 5 — reply to and resolve threads (GITHUB_TOKEN -> your replies
-            post as github-actions[bot], which cannot re-trigger the review):
-              For a thread you FIXED, reply then resolve:
+            STEP 5 — reply to threads; do NOT resolve any of them (GITHUB_TOKEN
+            -> your replies post as github-actions[bot], which cannot re-trigger
+            the review):
+              For a thread you FIXED, reply and record the thread id — do NOT
+              resolve it. You have not pushed anything, so a thread you resolve
+              here would claim a fix that does not exist yet, and if this run
+              dies before its push that claim outlives the commit. The file is
+              how you tell the job which threads to resolve once the push
+              lands; the reply is for the human reading the thread:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="Fixed in <SHA>: <one line on what changed and why it resolves the finding>."
-                gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' -F t=<threadId>
+                echo "<threadId>" >> "$RUNNER_TEMP/latch-fixed-threads.txt"
+              List a thread there ONLY if you changed code for it in this run.
+              A thread you left for a human must NOT appear in that file, and a
+              thread you omit simply stays open — the job never resolves from
+              your prose, only from this list.
               For a thread you DISAGREE with or that belongs elsewhere, reply with
               your reasoning and do NOT resolve it:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="<why no change is needed here / where the action belongs>. Leaving this unresolved for a human."
             Every unresolved review-bot thread must get exactly one reply from you.
+
+            NEVER resolve a thread — least of all one you did not fix. A
+            resolved thread is this loop's only signal that a finding was
+            ACTIONED, and a merge gate keyed on thread resolution reads a
+            resolved triage reply as "handled": that is how an unactioned
+            finding disappears. A reply is not a fix, and nothing you do is
+            durable until the surrounding job pushes. This is mechanically
+            enforced either way — after the push the job resolves the threads
+            whose fix landed, and re-opens (with a correction on the thread) any
+            that are resolved without one — so resolving anything yourself is
+            wasted work, not a shortcut.
 
             STEP 6 — STOP. Do not push, do not run any workflow, do not merge.
             Print a short summary: which threads you fixed (with SHA), which you
@@ -379,6 +457,14 @@ jobs:
           # default; fromJSON asserts JSON-numeric, so garbage — or a
           # flag-injecting value like `80 --dangerously-skip-permissions` —
           # fails the run LOUDLY at config time, which is the point.
+          #
+          # --max-turns is a RUNTIME budget handed to the agent, so it stops AT
+          # the cap. claude-code-action ALSO re-checks the count after the run
+          # and fails the step when the returned num_turns exceeds it, which is
+          # a check nothing here can turn off — and the two counts do diverge
+          # (observed live: a successful run reported 88 against a cap of 80).
+          # The push step below salvages that case rather than binning finished
+          # work; raising LATCH_MAX_TURNS is what stops it recurring.
           claude_args: |
             --model ${{ steps.cfg.outputs.model }}
             --effort ${{ steps.cfg.outputs.effort }}
@@ -386,21 +472,138 @@ jobs:
             --allowedTools "Bash,Read,Edit,Write,Grep,Glob"
 
       - name: Push fix and re-dispatch the review
-        if: success()
+        # Also runs when the agent step FAILED but left an execution log — the
+        # salvage path below decides from that log whether the run actually
+        # finished. Without this the action's post-hoc turn check discards a
+        # complete, paid-for fix.
+        #
+        # That rail rides an UNDOCUMENTED contract with someone else's action:
+        # the `execution_file` output named here, plus the log shape the jq
+        # filter below reads (a top-level array of SDK messages whose `result`
+        # message carries subtype/is_error/num_turns). Both verified against
+        # anthropics/claude-code-action v1.0.190 (5ef2e55, 2026-08-10) — what
+        # the moving `@v1` pin above resolved to then. A release that renames
+        # the output or reshapes that log turns this rail off silently: finished
+        # work gets binned again while CI stays green. Re-verify both when the
+        # pin moves under us.
+        if: success() || (failure() && steps.fixer.outputs.execution_file != '')
+        env:
+          AGENT_STEP_OUTCOME: ${{ steps.fixer.outcome }}
+          AGENT_EXECUTION_FILE: ${{ steps.fixer.outputs.execution_file }}
         run: |
           set -euo pipefail
+          # SALVAGE. If the agent step failed, keep its work only when the
+          # agent's own execution log says the run COMPLETED successfully. The
+          # known case is the action's post-hoc turn check: the SDK returns
+          # `is_error: false` and claude-code-action then throws because
+          # num_turns exceeded the cap the agent was already given. The fix is
+          # finished and paid for by then, so discarding it — and telling a
+          # human to raise the cap after the money is spent — is the wrong
+          # trade. Any other failure stays a failure.
+          RESCUE_NOTE=""
+          if [ "${AGENT_STEP_OUTCOME:-success}" != "success" ]; then
+            TURNS=$(jq -r '[.[] | select(.type? == "result")] | last
+                             | select(.subtype=="success" and (.is_error|not)) | .num_turns' \
+                       "${AGENT_EXECUTION_FILE:-/dev/null}" 2>/dev/null || true)
+            if [ -z "$TURNS" ] || [ "$TURNS" = "null" ]; then
+              echo "The fixer step failed and its execution log shows no successful result — nothing to salvage."
+              exit 1
+            fi
+            echo "::warning title=Latch salvaged a completed fixer run::The agent finished successfully in ${TURNS} turns but the action failed the step afterwards. Pushing the finished work instead of discarding it."
+            # shellcheck disable=SC2016  # the backticks are markdown code spans, not command substitution
+            RESCUE_NOTE=$(printf '\n\n⚠️ **The step failed *after* the agent had finished successfully** (%s turns; the action re-checks the turn count once the run is over and fails the step when it exceeds `--max-turns`). Its finished work was kept rather than discarded — the run still shows as failed so the discrepancy stays visible. Raise `LATCH_MAX_TURNS` to stop it recurring.' "$TURNS")
+          fi
+
+          # Resolve the branch from the PR, not from `git rev-parse --abbrev-ref
+          # HEAD`: an explicit refspec is what makes the retry below able to
+          # push a rebased HEAD, and it survives a detached checkout.
+          BRANCH=$(gh pr view "$PR" --json headRefName --jq .headRefName)
           HEAD_SHA=$(git rev-parse HEAD)
           SHORT=$(git rev-parse --short HEAD)
           NEXT=$(( CYCLE + 1 ))
 
           if [ "$HEAD_SHA" = "$BASE_SHA" ]; then
             echo "No fix commit — the fixer judged the open threads as needing a human, not an edit."
-            gh pr comment "$PR" --body "ℹ️ **Latch fixer run (no code change).** The fixer replied to the open review threads and judged they need a human decision rather than a code edit, so the review is **not** being re-dispatched and the loop pauses here. See the thread replies above."
+            echo "HANDLED=true" >> "$GITHUB_ENV"
+            gh pr comment "$PR" --body "ℹ️ **Latch fixer run (no code change).** The fixer replied to the open review threads and judged they need a human decision rather than a code edit, so the review is **not** being re-dispatched and the loop pauses here. Those threads stay **unresolved** — a reply is not a fix. See the thread replies above.${RESCUE_NOTE}"
             exit 0
           fi
 
+          # The fix commits, recorded BEFORE any rebase: the fixer's thread
+          # replies cite these SHAs ("Fixed in <sha>") and a rebase rewrites
+          # them, so this is the list the resolution guard matches against.
+          git rev-list "$BASE_SHA..HEAD" > "$RUNNER_TEMP/latch-fix-shas.txt"
+          # The fixer set this identity when it committed; set it again so the
+          # rebase below cannot die on a missing committer.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           echo "Fix commit $HEAD_SHA — pushing with GITHUB_TOKEN (recursion guard: this push triggers no workflow)."
-          git push origin HEAD
+          REBASE_NOTE=""
+          RACE_CAVEAT=""
+          PRE_REBASE_SHORT="$SHORT"
+          if ! git push origin "HEAD:$BRANCH"; then
+            # A push can fail for reasons that have nothing to do with a race —
+            # branch protection, a token without write, a network blip — and
+            # diagnosing the wrong cause is the bug this whole step exists to
+            # stop. Classify on the ref itself, never on git's stderr: those
+            # messages are gettext-translated, and this template ships to
+            # runners whose locale we do not control. If the fetched tip is
+            # already in our history the branch did not move, so nothing raced.
+            git fetch origin "$BRANCH"
+            REMOTE_TIP=$(git rev-parse FETCH_HEAD)
+            if git merge-base --is-ancestor "$REMOTE_TIP" HEAD; then
+              echo "PUSH_RACE=push-failed" >> "$GITHUB_ENV"
+              echo "::error title=Latch push failed::git push to $BRANCH failed with the branch unmoved, so this is not a race — see the run log for git's error."
+              exit 1
+            fi
+            # PUSH RACE. Something else pushed to the PR branch while the fixer
+            # was working (a human, another agent, a merge of the base branch),
+            # so this push is rejected non-fast-forward. Failing here loses the
+            # fix with the runner, so: rebase onto the new tip, retry ONCE.
+            #
+            # Rebase, not merge: the fix is a commit or two on top of the
+            # branch, and replaying it over an unrelated push is the clean
+            # outcome. A CONFLICT means the competing push touched the same
+            # lines the fixer did — resolving that automatically is exactly the
+            # judgement this loop must not make on its own, so we stop and hand
+            # a human the competing SHA.
+            echo "PUSH_RACE_TIP=$REMOTE_TIP" >> "$GITHUB_ENV"
+            echo "Push rejected: $BRANCH moved to $REMOTE_TIP while the fixer ran. Rebasing the fix onto it and retrying once."
+            if ! git rebase FETCH_HEAD; then
+              git rebase --abort || true
+              echo "PUSH_RACE=conflict" >> "$GITHUB_ENV"
+              echo "::error title=Latch push race::The fix conflicts with $REMOTE_TIP, pushed to $BRANCH while the fixer ran."
+              exit 1
+            fi
+            HEAD_SHA=$(git rev-parse HEAD)
+            SHORT=$(git rev-parse --short HEAD)
+            if ! git push origin "HEAD:$BRANCH"; then
+              echo "PUSH_RACE=retry-failed" >> "$GITHUB_ENV"
+              echo "::error title=Latch push race::The rebased fix still could not be pushed to $BRANCH."
+              exit 1
+            fi
+            REBASE_NOTE=" (rebased onto \`${REMOTE_TIP:0:7}\`, which landed on the branch while the fixer ran)"
+            # Two things a rebase invalidates, both disclosed on the PR rather
+            # than papered over:
+            #   * the agent ran the policy `checks:` against the PRE-race tree,
+            #     so a textually clean rebase can still combine into a red one
+            #     (the competing push renames what the fix calls). This step
+            #     cannot re-run them — the check commands live in
+            #     .latch/policy.yml, keyed by path glob, and only the agent
+            #     resolves them — so the honest move is to say so and lean on
+            #     the re-dispatched review, which does run on the new head.
+            #   * the fixer's thread replies cite the pre-rebase SHA, which the
+            #     rebase rewrote; publish the mapping so a resolved thread still
+            #     leads to a commit that exists on the branch.
+            # shellcheck disable=SC2016  # the backticks are markdown code spans, not command substitution
+            RACE_CAVEAT=$(printf '\n\n⚠️ **Rebased over a competing push, so two caveats.** The thread replies above cite `%s`, which the rebase rewrote to `%s` — same change, new SHA. And the checks the fixer ran happened *before* `%s` landed, so they were **not** re-verified on the combined tree; the re-dispatched review and the human merge are the backstop.' \
+              "$PRE_REBASE_SHORT" "$SHORT" "${REMOTE_TIP:0:7}")
+          fi
+          # The fix is on the branch. Anything the reporter would say about this
+          # run is now this step's to say — it knows which path was taken.
+          echo "PUSHED=true" >> "$GITHUB_ENV"
+          echo "HANDLED=true" >> "$GITHUB_ENV"
 
           # Consume a cycle only now that a real fix has landed.
           gh label create "latch-cycle:$NEXT" --color BFD4F2 --description "Latch review<->fix loop: fixer cycle #$NEXT" --force >/dev/null 2>&1 || true
@@ -412,7 +615,150 @@ jobs:
           echo "Re-dispatching the review workflow against PR #$PR (explicit workflow_dispatch)."
           gh workflow run latch-review.yml -f pr="$PR"
 
-          gh pr comment "$PR" --body "🤖 **Latch fix-cycle ${NEXT}.** Pushed \`${SHORT}\` and re-dispatched the review. When the review comes back clean (no inline findings) the loop ends and this PR is ready for a human to merge. (Cap: ${MAX_CYCLES} fixer cycles.)"
+          gh pr comment "$PR" --body "🤖 **Latch fix-cycle ${NEXT}.** Pushed \`${SHORT}\`${REBASE_NOTE} and re-dispatched the review. When the review comes back clean (no inline findings) the loop ends and this PR is ready for a human to merge. (Cap: ${MAX_CYCLES} fixer cycles.)${RACE_CAVEAT}${RESCUE_NOTE}"
+
+      - name: Settle review threads against what actually landed
+        # The mechanical half of the resolution rail, and the ONLY place thread
+        # resolution happens — after the push, never during the agent's run.
+        # The agent replies mid-run; if it also resolved, the fix claim and the
+        # resolution would outlive a run that died before pushing (observed in
+        # production: threads resolved citing a commit that only ever existed on
+        # the runner). Of the threads that were open before this run (the
+        # snapshot), this resolves the ones whose fix landed and re-opens — with
+        # a correction posted on the thread — any that are resolved without one.
+        # Runs on failure and cancellation too: that is precisely when a
+        # resolution has no commit behind it.
+        if: always()
+        run: |
+          set -euo pipefail
+          SNAP="$RUNNER_TEMP/latch-open-threads.txt"
+          FIX_SHAS="$RUNNER_TEMP/latch-fix-shas.txt"
+          FIXED_IDS="$RUNNER_TEMP/latch-fixed-threads.txt"
+          if [ ! -s "$SNAP" ]; then
+            echo "No thread snapshot (the fixer never started) — nothing to re-couple."
+            exit 0
+          fi
+
+          # Every thread with its resolution state and ONLY the FIXER's own
+          # replies as the body to match against. GraphQL drops the "[bot]"
+          # suffix, and `resolvedBy` can come back null for a bot resolution, so
+          # accept both; a thread a HUMAN resolved names that human here and is
+          # left alone. Restricting the body to the fixer's replies matters: the
+          # reviewer's finding often quotes code or a diff, and a stray hex
+          # string there must not read as a fix citation. `last:100` on the
+          # comments, not `first`: on a long human back-and-forth the fixer's
+          # citation is at the END, and dropping it would falsely re-open a
+          # thread whose fix is on the branch.
+          # shellcheck disable=SC2016  # $owner/$repo/$pr are GraphQL vars, kept literal
+          gh api graphql --paginate -f query='
+            query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+              repository(owner:$owner,name:$repo){ pullRequest(number:$pr){
+                reviewThreads(first:100, after:$endCursor){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{
+                    id isResolved resolvedBy{ login }
+                    comments(last:100){ nodes{ author{ login } body } }
+                }}}}}' \
+            -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                    | select(.isResolved==false
+                             or ((.resolvedBy.login // "github-actions") | startswith("github-actions")))
+                    | [.id, .isResolved, ([.comments.nodes[]
+                               | select((.author.login // "") | startswith("github-actions"))
+                               | .body] | join(" "))] | @tsv' \
+            > "$RUNNER_TEMP/latch-resolved.tsv"
+
+          reopened=0
+          settled=0
+          while IFS=$'\t' read -r tid state blob <&3; do
+            [ -n "$tid" ] || continue
+            # Only threads this run found OPEN — an earlier cycle's fixed and
+            # resolved threads are none of our business.
+            grep -Fxq "$tid" "$SNAP" || continue
+
+            # ONE test, and it gates BOTH directions, because a resolved thread
+            # is this loop's only signal that a finding was ACTIONED. This
+            # thread counts as FIXED only when the agent listed its id in
+            # latch-fixed-threads.txt — its structured "I changed code for this"
+            # signal — AND a commit from this run is cited in its own reply on
+            # this thread. Neither half stands alone:
+            #   * the list alone would resolve a mis-listed thread on the
+            #     strength of any push in the run; the citation ties it to a
+            #     commit that landed.
+            #   * the citation alone is looser still, because a landed SHA can
+            #     appear in a reply that hands the finding OFF ("leaving this
+            #     for a human — it sits next to the off-by-one I fixed in
+            #     1a2b3c4", a real SHA for a DIFFERENT thread). Accepting that
+            #     as grounds to leave a resolved thread alone is how an
+            #     unactioned finding disappears behind a resolution.
+            # A thread satisfying one half but not the other stays open, which
+            # costs a cycle rather than a finding. Deliberately NOT read out of
+            # the reply prose: a rail whose premise is "prompts are advisory"
+            # cannot decide the dangerous direction by grepping the agent's
+            # wording, and no blocklist of phrases ever catches them all.
+            cites=false
+            claims=false
+            if [ "${PUSHED:-false}" = "true" ]; then
+              if [ -s "$FIX_SHAS" ]; then
+                while read -r sha; do
+                  short=${sha:0:7}
+                  if printf '%s' "$blob" | grep -qi "$short"; then
+                    cites=true
+                    break
+                  fi
+                done < "$FIX_SHAS"
+              fi
+              if [ "$cites" = "true" ] && [ -s "$FIXED_IDS" ] && grep -Fxq "$tid" "$FIXED_IDS"; then
+                claims=true
+              fi
+            fi
+
+            if [ "$claims" = "true" ]; then
+              # This thread's fix is on the branch. Resolve it HERE, after the
+              # push, even if the agent already did: resolution is the merge
+              # gate's signal and this step is the only place that knows what
+              # actually landed.
+              if [ "$state" = "false" ]; then
+                echo "Resolving $tid: its fix is on the branch."
+                # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
+                gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
+                  -F t="$tid" >/dev/null
+                settled=$(( settled + 1 ))
+              fi
+              continue
+            fi
+            if [ "$state" != "true" ]; then
+              continue  # open and unfixed — the correct state; leave it alone
+            fi
+            # Resolved, with no fix of this run's own behind it. Every thread
+            # that reaches here was resolved by the AGENT mid-run against STEP
+            # 5's instruction — the snapshot had it open when the run started,
+            # and a human's resolution names that human in `resolvedBy` and was
+            # filtered out by the query above — so this is exactly the unbacked
+            # claim the rail exists to undo.
+            echo "Re-opening $tid: resolved by the fixer with no fix of its own landed for it."
+            # Correct the record ON THE THREAD as well. The agent replies and
+            # resolves mid-run, so the thread is left carrying a detailed
+            # "Fixed in <sha>" claim for a commit that only ever existed on the
+            # runner, or one that belongs to a different finding. Re-opening is
+            # not enough — the claim has to be contradicted where a human will
+            # read it.
+            # shellcheck disable=SC2016  # $t/$b are GraphQL vars, kept literal
+            gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' \
+              -F t="$tid" \
+              -F b="🔓 **Re-opened by Latch.** This thread was marked resolved, but no fix for *this* finding landed on this branch — the run changed no code for it, it ended before its push, or a commit cited above belongs to a different thread. Treat the finding as open." >/dev/null || true
+            # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
+            gh api graphql -f query='mutation($t:ID!){ unresolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
+              -F t="$tid" >/dev/null
+            reopened=$(( reopened + 1 ))
+          done 3< "$RUNNER_TEMP/latch-resolved.tsv"
+
+          echo "threads settled as fixed: $settled; re-opened: $reopened"
+          if [ "$reopened" -gt 0 ]; then
+            gh pr comment "$PR" --body "🔓 **Latch re-opened ${reopened} review thread(s).** They were marked resolved, but no fix for those findings landed on this branch — the run changed no code for them, it ended before its push, or the commit their replies cite belongs to a different finding. A resolved thread is this loop's signal that a finding was actioned, so leaving them resolved would hide unactioned findings from any merge gate keyed on thread resolution. They are open again for a human or the next fixer cycle."
+          else
+            echo "Nothing to re-open — every resolution here is backed by a landed fix."
+          fi
 
       # `failure()` alone leaves a TIMEOUT silent: exceeding `timeout-minutes`
       # CANCELS the job, and a cancellation satisfies neither success() nor
@@ -423,7 +769,10 @@ jobs:
       # announcing. (Steps whose `if` uses cancelled() are re-evaluated and do
       # run during cancellation — this one is a single fast `gh pr comment`.)
       - name: Report fixer failure
-        if: failure() || cancelled()
+        # Skipped when the push step already spoke for this run (it pushed, or
+        # it explained a no-code-change run) — that step knows the specific
+        # cause; this one is the catch-all.
+        if: (failure() || cancelled()) && env.HANDLED != 'true'
         env:
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -433,5 +782,21 @@ jobs:
           if [ "$JOB_STATUS" = "cancelled" ]; then
             gh pr comment "$PR" --body "⚠️ **Latch fixer run cancelled before it finished** — most likely it ran past the job timeout (${TIMEOUT_MINUTES} minutes; raise the \`LATCH_TIMEOUT_MINUTES\` repo variable, and raise \`LATCH_MAX_TURNS\` with it, since more turns need more wall clock). A hand-cancelled run looks identical from here. Any partial work was discarded: nothing was pushed and the review was not re-dispatched. Run log: $RUN_URL. The loop pauses here for a human."
           else
-            gh pr comment "$PR" --body "⚠️ **Latch fixer run errored** before completing — no code was changed and the review was not re-dispatched. See the run log: $RUN_URL. The loop pauses here for a human."
+            # Name the ACTUAL cause. A push race is not a turn-cap problem, and
+            # telling a human to raise the turn cap when the branch moved under
+            # the fixer sends them to fix the wrong thing.
+            case "${PUSH_RACE:-}" in
+              conflict)
+                gh pr comment "$PR" --body "⚠️ **Latch fixer hit a push race and stopped.** \`${PUSH_RACE_TIP:-unknown}\` was pushed to this branch while the fixer was running, and rebasing the fix onto it **conflicted** — that competing commit changed the same lines the fixer did, so automatically resolving it is not something this loop will do. Nothing was pushed and the review was not re-dispatched; the fix existed only on the runner and is gone. A human needs to redo it on top of the current branch. This is a push race, **not** a turn-cap or timeout problem — raising the turn cap will not help. Run log: $RUN_URL"
+                ;;
+              retry-failed)
+                gh pr comment "$PR" --body "⚠️ **Latch fixer hit a push race and stopped.** \`${PUSH_RACE_TIP:-unknown}\` was pushed to this branch while the fixer was running. The fix rebased onto it cleanly, but the retry push was rejected as well — either the branch moved a second time, or this token cannot write to it (branch protection). Nothing was pushed and the review was not re-dispatched. This is a push race, **not** a turn-cap or timeout problem — raising the turn cap will not help. Run log: $RUN_URL"
+                ;;
+              push-failed)
+                gh pr comment "$PR" --body "⚠️ **Latch fixer could not push its fix.** The push to this PR's branch failed, and **not** with a non-fast-forward rejection — so this is not a race with another push. The usual causes are branch protection on the head branch or a token without write access to it. Nothing was pushed and the review was not re-dispatched; the fix existed only on the runner. The exact git error is in the run log: $RUN_URL"
+                ;;
+              *)
+                gh pr comment "$PR" --body "⚠️ **Latch fixer run errored** before completing — nothing was pushed and the review was not re-dispatched, and any fix the agent had made locally is gone with the runner. See the run log for the step that failed: $RUN_URL. The loop pauses here for a human."
+                ;;
+            esac
           fi

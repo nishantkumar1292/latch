@@ -108,9 +108,15 @@ test('the config step refuses a flag-injecting variable and keeps the zero-confi
 test('a fixer that runs out of wall clock still reports', () => {
   // Exceeding timeout-minutes CANCELS the job, which satisfies neither
   // success() nor failure() — without cancelled() the loop stalls in silence.
-  assert.match(FIX, /if: failure\(\) \|\| cancelled\(\)/);
+  // The HANDLED gate stays on that condition: the push step still owns the
+  // causes it can name, so this reporter must not double-post over it.
+  assert.match(FIX, /if: \(failure\(\) \|\| cancelled\(\)\) && env\.HANDLED != 'true'/);
   assert.match(FIX, /JOB_STATUS: \$\{\{ job\.status \}\}/);
   assert.match(FIX, /LATCH_TIMEOUT_MINUTES/);
+  // ...and the cancelled branch must say "timeout", not reach for the
+  // push-race causes, which apply only to a run that actually failed.
+  assert.match(FIX, /if \[ "\$JOB_STATUS" = "cancelled" \]; then[\s\S]*?ran past the job timeout/);
+  assert.match(FIX, /else\n\s+#[\s\S]*?case "\$\{PUSH_RACE:-\}" in/);
 });
 
 test('the fixer queues and is never cancelled mid-push', () => {
