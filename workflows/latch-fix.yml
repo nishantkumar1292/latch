@@ -211,12 +211,16 @@ jobs:
         # forever).
         run: |
           set -euo pipefail
+          # --paginate walks every page: a thread past the first hundred that
+          # went missing here would silently escape the settle step below.
           # shellcheck disable=SC2016  # $owner/$repo/$pr are GraphQL vars, kept literal
-          gh api graphql -f query='
-            query($owner:String!,$repo:String!,$pr:Int!){
+          gh api graphql --paginate -f query='
+            query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
               repository(owner:$owner,name:$repo){ pullRequest(number:$pr){
-                reviewThreads(first:100){ nodes{
-                  id isResolved comments(first:1){ nodes{ author{ login } } }
+                reviewThreads(first:100, after:$endCursor){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{
+                    id isResolved comments(first:1){ nodes{ author{ login } } }
                 }}}}}' \
             -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" \
             --jq '.data.repository.pullRequest.reviewThreads.nodes[]
@@ -529,14 +533,19 @@ jobs:
           # accept both; a thread a HUMAN resolved names that human here and is
           # left alone. Restricting the body to the fixer's replies matters: the
           # reviewer's finding often quotes code or a diff, and a stray hex
-          # string there must not read as a fix citation.
+          # string there must not read as a fix citation. `last:100` on the
+          # comments, not `first`: on a long human back-and-forth the fixer's
+          # citation is at the END, and dropping it would falsely re-open a
+          # thread whose fix is on the branch.
           # shellcheck disable=SC2016  # $owner/$repo/$pr are GraphQL vars, kept literal
-          gh api graphql -f query='
-            query($owner:String!,$repo:String!,$pr:Int!){
+          gh api graphql --paginate -f query='
+            query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
               repository(owner:$owner,name:$repo){ pullRequest(number:$pr){
-                reviewThreads(first:100){ nodes{
-                  id isResolved resolvedBy{ login }
-                  comments(first:100){ nodes{ author{ login } body } }
+                reviewThreads(first:100, after:$endCursor){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{
+                    id isResolved resolvedBy{ login }
+                    comments(last:100){ nodes{ author{ login } body } }
                 }}}}}' \
             -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" \
             --jq '.data.repository.pullRequest.reviewThreads.nodes[]
