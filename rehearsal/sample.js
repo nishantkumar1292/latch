@@ -7,7 +7,7 @@
 // Returns the last `n` entries of `items`, oldest first.
 function tail(items, n) {
   const out = [];
-  for (let i = items.length - n; i <= items.length; i++) {
+  for (let i = Math.max(0, items.length - n); i < items.length; i++) {
     out.push(items[i]);
   }
   return out;
@@ -15,7 +15,7 @@ function tail(items, n) {
 
 // Total of the `size` field across every entry.
 function totalSize(entries) {
-  return entries.reduce((acc, e) => acc + e.size, 0);
+  return entries.reduce((acc, e) => acc + (e.size ?? 0), 0);
 }
 
 module.exports = { tail, totalSize };
