@@ -362,6 +362,8 @@ jobs:
 
           echo "Fix commit $HEAD_SHA — pushing with GITHUB_TOKEN (recursion guard: this push triggers no workflow)."
           REBASE_NOTE=""
+          RACE_CAVEAT=""
+          PRE_REBASE_SHORT="$SHORT"
           if ! git push origin "HEAD:$BRANCH"; then
             # PUSH RACE. Something else pushed to the PR branch while the fixer
             # was working (a human, another agent, a merge of the base branch),
@@ -393,6 +395,21 @@ jobs:
               exit 1
             fi
             REBASE_NOTE=" (rebased onto \`${REMOTE_TIP:0:7}\`, which landed on the branch while the fixer ran)"
+            # Two things a rebase invalidates, both disclosed on the PR rather
+            # than papered over:
+            #   * the agent ran the policy `checks:` against the PRE-race tree,
+            #     so a textually clean rebase can still combine into a red one
+            #     (the competing push renames what the fix calls). This step
+            #     cannot re-run them — the check commands live in
+            #     .latch/policy.yml, keyed by path glob, and only the agent
+            #     resolves them — so the honest move is to say so and lean on
+            #     the re-dispatched review, which does run on the new head.
+            #   * the fixer's thread replies cite the pre-rebase SHA, which the
+            #     rebase rewrote; publish the mapping so a resolved thread still
+            #     leads to a commit that exists on the branch.
+            # shellcheck disable=SC2016  # the backticks are markdown code spans, not command substitution
+            RACE_CAVEAT=$(printf '\n\n⚠️ **Rebased over a competing push, so two caveats.** The thread replies above cite `%s`, which the rebase rewrote to `%s` — same change, new SHA. And the checks the fixer ran happened *before* `%s` landed, so they were **not** re-verified on the combined tree; the re-dispatched review and the human merge are the backstop.' \
+              "$PRE_REBASE_SHORT" "$SHORT" "${REMOTE_TIP:0:7}")
           fi
           echo "PUSHED=true" >> "$GITHUB_ENV"
 
@@ -406,7 +423,7 @@ jobs:
           echo "Re-dispatching the review workflow against PR #$PR (explicit workflow_dispatch)."
           gh workflow run latch-review.yml -f pr="$PR"
 
-          gh pr comment "$PR" --body "🤖 **Latch fix-cycle ${NEXT}.** Pushed \`${SHORT}\`${REBASE_NOTE} and re-dispatched the review. When the review comes back clean (no inline findings) the loop ends and this PR is ready for a human to merge. (Cap: ${MAX_CYCLES} fixer cycles.)"
+          gh pr comment "$PR" --body "🤖 **Latch fix-cycle ${NEXT}.** Pushed \`${SHORT}\`${REBASE_NOTE} and re-dispatched the review. When the review comes back clean (no inline findings) the loop ends and this PR is ready for a human to merge. (Cap: ${MAX_CYCLES} fixer cycles.)${RACE_CAVEAT}"
 
       - name: Re-open threads resolved without a landed fix
         # The mechanical half of the resolution rail. The prompt forbids
