@@ -87,7 +87,11 @@ sequenceDiagram
    `cargo fmt/clippy/test`, `npm lint/tsc/build`) and keeps a fix only if its checks
    pass — never leaving a red tree. Toolchains it doesn't have installed (mobile
    builds) are declared plainly in the thread reply, with the re-dispatched review and
-   the human merge as the backstop.
+   the human merge as the backstop. One exception, disclosed on the PR when it
+   happens: the race-rebase path in item 8 pushes the *combined* tree without
+   re-running the checks (they ran on the pre-race commit), because the check commands
+   are policy data only the agent resolves — there, too, the re-dispatched review and
+   the human merge are the backstop.
 6. **Resolution is coupled to a landed fix.** A resolved thread is the loop's only
    signal that a finding was *actioned*, so resolving a thread the fixer merely replied
    to would hide an unactioned finding from any merge gate keyed on thread resolution.

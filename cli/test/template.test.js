@@ -5,6 +5,7 @@
 // template check is "does it parse as YAML" — which both bugs passed.
 
 const { test } = require('node:test');
+const { spawnSync } = require('child_process');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
@@ -35,6 +36,31 @@ test('a finished fixer run is salvaged, not discarded', () => {
   assert.match(FIX, /steps\.fixer\.outputs\.execution_file/);
   assert.match(FIX, /AGENT_EXECUTION_FILE/);
   assert.match(FIX, /nothing to salvage/);
+});
+
+test("the salvage filter reads claude-code-action's real log shape", () => {
+  // The rail hinges on one assumption about someone else's artifact: the
+  // execution log is a top-level array of SDK messages whose result message
+  // carries subtype/is_error/num_turns (base-action/src/execution-file.ts
+  // writes `JSON.stringify(messages)`). Pin it by running the template's own
+  // jq filter over that shape rather than trusting a string match.
+  const filter = /jq -r '([\s\S]*?)' \\\n/.exec(FIX);
+  assert.ok(filter, 'salvage jq filter found in the template');
+  const jqAvailable = spawnSync('jq', ['--version']);
+  if (jqAvailable.error) return; // jq absent locally — the runner always has it
+  const run = (log) => {
+    const r = spawnSync('jq', ['-r', filter[1]], { input: JSON.stringify(log), encoding: 'utf8' });
+    return (r.stdout || '').trim();
+  };
+  const over = [
+    { type: 'system', subtype: 'init', session_id: 's' },
+    { type: 'assistant' },
+    { type: 'result', subtype: 'success', is_error: false, num_turns: 88, total_cost_usd: 4.2 },
+  ];
+  const errored = [{ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 12 }];
+  assert.strictEqual(run(over), '88', 'a completed over-cap run is salvageable');
+  assert.strictEqual(run(errored), '', 'a genuinely failed run is not');
+  assert.strictEqual(run([{ type: 'assistant' }]), '', 'a log with no result message is not');
 });
 
 test('thread resolution is mechanically coupled to a landed fix', () => {

@@ -422,24 +422,25 @@ jobs:
           REBASE_NOTE=""
           RACE_CAVEAT=""
           PRE_REBASE_SHORT="$SHORT"
-          PUSH_ERR="$RUNNER_TEMP/latch-push-err.txt"
-          if ! git push origin "HEAD:$BRANCH" 2>"$PUSH_ERR"; then
-            cat "$PUSH_ERR" >&2
+          if ! git push origin "HEAD:$BRANCH"; then
             # A push can fail for reasons that have nothing to do with a race —
-            # branch protection, a token without write, a network blip. Narrate
-            # a race only when the rejection actually says so; anything else is
-            # reported as what it is. (Diagnosing the wrong cause is the bug
-            # this whole step exists to stop.)
-            if ! grep -Eq 'non-fast-forward|fetch first|\[rejected\]' "$PUSH_ERR"; then
+            # branch protection, a token without write, a network blip — and
+            # diagnosing the wrong cause is the bug this whole step exists to
+            # stop. Classify on the ref itself, never on git's stderr: those
+            # messages are gettext-translated, and this template ships to
+            # runners whose locale we do not control. If the fetched tip is
+            # already in our history the branch did not move, so nothing raced.
+            git fetch origin "$BRANCH"
+            REMOTE_TIP=$(git rev-parse FETCH_HEAD)
+            if git merge-base --is-ancestor "$REMOTE_TIP" HEAD; then
               echo "PUSH_RACE=push-failed" >> "$GITHUB_ENV"
-              echo "::error title=Latch push failed::git push to $BRANCH failed, and not with a non-fast-forward rejection — see the run log."
+              echo "::error title=Latch push failed::git push to $BRANCH failed with the branch unmoved, so this is not a race — see the run log for git's error."
               exit 1
             fi
             # PUSH RACE. Something else pushed to the PR branch while the fixer
             # was working (a human, another agent, a merge of the base branch),
             # so this push is rejected non-fast-forward. Failing here loses the
-            # fix with the runner, so: fetch the new tip, rebase onto it, retry
-            # ONCE.
+            # fix with the runner, so: rebase onto the new tip, retry ONCE.
             #
             # Rebase, not merge: the fix is a commit or two on top of the
             # branch, and replaying it over an unrelated push is the clean
@@ -447,8 +448,6 @@ jobs:
             # lines the fixer did — resolving that automatically is exactly the
             # judgement this loop must not make on its own, so we stop and hand
             # a human the competing SHA.
-            git fetch origin "$BRANCH"
-            REMOTE_TIP=$(git rev-parse FETCH_HEAD)
             echo "PUSH_RACE_TIP=$REMOTE_TIP" >> "$GITHUB_ENV"
             echo "Push rejected: $BRANCH moved to $REMOTE_TIP while the fixer ran. Rebasing the fix onto it and retrying once."
             if ! git rebase FETCH_HEAD; then
@@ -551,16 +550,17 @@ jobs:
             if [ "${PUSHED:-false}" = "true" ] && [ -s "$FIX_SHAS" ]; then
               while read -r sha; do
                 short=${sha:0:7}
-                # The citation the prompt mandates — the phrase "Fixed in" AND
-                # the SHA, anywhere in the fixer's own replies. Not a bare hex
-                # substring: the fixer mentioning a SHA in passing ("fixed the
-                # related issue in <sha>") carries no "fixed in" and is not a
-                # claim that THIS finding was fixed. Co-occurrence rather than
-                # adjacency because the two errors are not symmetric — a missed
-                # citation re-opens a thread that IS fixed, which burns a fixer
-                # cycle and can stop a converged PR from converging.
-                if printf '%s' "$blob" | grep -qi 'fixed in' \
-                   && printf '%s' "$blob" | grep -qi "$short"; then
+                # A landed SHA cited in the fixer's OWN reply on THIS thread.
+                # Deliberately not keyed on the prompt's "Fixed in" wording: a
+                # guard that exists because prompts are advisory cannot make
+                # exact phrasing its discriminator, and a paraphrase ("Addressed
+                # in <sha>") would re-open a thread that is genuinely fixed —
+                # which burns a fixer cycle and can stop a converged PR from
+                # converging. The two errors are not symmetric, and the blob is
+                # already restricted to the fixer's replies (so a reviewer
+                # quoting hex cannot satisfy it), gated on a push having landed
+                # and on this thread being open when the run started.
+                if printf '%s' "$blob" | grep -qi "$short"; then
                   landed=true
                   break
                 fi
