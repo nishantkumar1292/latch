@@ -28,6 +28,15 @@ test('the fixer recovers from a push race instead of losing the fix', () => {
   assert.match(FIX, /push race, \*\*not\*\* a turn-cap or timeout problem/);
 });
 
+test('a finished fixer run is salvaged, not discarded', () => {
+  // claude-code-action fails the step when the returned turn count exceeds
+  // --max-turns, even on a successful run. The push step must still run in that
+  // case and decide from the agent's own execution log.
+  assert.match(FIX, /steps\.fixer\.outputs\.execution_file/);
+  assert.match(FIX, /AGENT_EXECUTION_FILE/);
+  assert.match(FIX, /nothing to salvage/);
+});
+
 test('thread resolution is mechanically coupled to a landed fix', () => {
   // The prompt forbids resolving a thread the fixer only replied to, but a
   // prompt is advisory: the job snapshots the open threads beforehand and
