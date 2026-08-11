@@ -595,9 +595,15 @@ jobs:
                   fi
                 done < "$FIX_SHAS"
               fi
-              if [ -s "$FIXED_IDS" ] && grep -Fxq "$tid" "$FIXED_IDS"; then
+              # BOTH signals, because resolving asserts a finding was actioned:
+              # the agent listed this thread as one it changed code for, AND a
+              # commit from this run is cited in its reply on this thread. The
+              # list alone would resolve a mis-listed thread on the strength of
+              # any push in the run; the citation ties it to a landed commit.
+              # A thread that satisfies one but not the other stays open, which
+              # costs a cycle rather than a finding.
+              if [ "$cites" = "true" ] && [ -s "$FIXED_IDS" ] && grep -Fxq "$tid" "$FIXED_IDS"; then
                 claims=true
-                cites=true
               fi
             fi
 
