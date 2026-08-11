@@ -570,24 +570,26 @@ jobs:
             # resolved threads are none of our business.
             grep -Fxq "$tid" "$SNAP" || continue
 
-            # TWO tests over the fixer's own replies on THIS thread, because
-            # the two directions must fail in opposite directions.
-            #
-            #   cites  (loose) — a landed SHA appears at all. Enough to LEAVE a
-            #     resolved thread alone: re-opening a genuinely fixed thread
-            #     over a paraphrase ("Addressed in <sha>") burns a fixer cycle
-            #     and can stop a converged PR from converging.
-            #   claims (strict) — the agent listed this thread id in
-            #     latch-fixed-threads.txt, its structured "I changed code for
-            #     this" signal. Required to RESOLVE a thread it left open,
-            #     because that direction asserts a finding was ACTIONED and
-            #     asserting it wrongly hides the finding — the cardinal sin this
-            #     rail exists to prevent. Deliberately NOT read out of the reply
-            #     prose: a rail whose premise is "prompts are advisory" cannot
-            #     decide the dangerous direction by grepping the agent's wording
-            #     ("the related cleanup was addressed in <sha>" is a hand-off,
-            #     not a fix, and no blocklist of phrases ever catches them all).
-            #     An unlisted thread just stays open — the safe direction.
+            # ONE test, and it gates BOTH directions, because a resolved thread
+            # is this loop's only signal that a finding was ACTIONED. This
+            # thread counts as FIXED only when the agent listed its id in
+            # latch-fixed-threads.txt — its structured "I changed code for this"
+            # signal — AND a commit from this run is cited in its own reply on
+            # this thread. Neither half stands alone:
+            #   * the list alone would resolve a mis-listed thread on the
+            #     strength of any push in the run; the citation ties it to a
+            #     commit that landed.
+            #   * the citation alone is looser still, because a landed SHA can
+            #     appear in a reply that hands the finding OFF ("leaving this
+            #     for a human — it sits next to the off-by-one I fixed in
+            #     1a2b3c4", a real SHA for a DIFFERENT thread). Accepting that
+            #     as grounds to leave a resolved thread alone is how an
+            #     unactioned finding disappears behind a resolution.
+            # A thread satisfying one half but not the other stays open, which
+            # costs a cycle rather than a finding. Deliberately NOT read out of
+            # the reply prose: a rail whose premise is "prompts are advisory"
+            # cannot decide the dangerous direction by grepping the agent's
+            # wording, and no blocklist of phrases ever catches them all.
             cites=false
             claims=false
             if [ "${PUSHED:-false}" = "true" ]; then
@@ -600,23 +602,17 @@ jobs:
                   fi
                 done < "$FIX_SHAS"
               fi
-              # BOTH signals, because resolving asserts a finding was actioned:
-              # the agent listed this thread as one it changed code for, AND a
-              # commit from this run is cited in its reply on this thread. The
-              # list alone would resolve a mis-listed thread on the strength of
-              # any push in the run; the citation ties it to a landed commit.
-              # A thread that satisfies one but not the other stays open, which
-              # costs a cycle rather than a finding.
               if [ "$cites" = "true" ] && [ -s "$FIXED_IDS" ] && grep -Fxq "$tid" "$FIXED_IDS"; then
                 claims=true
               fi
             fi
 
-            if [ "$cites" = "true" ]; then
-              # The fix is on the branch. Resolve it HERE, after the push, even
-              # if the agent already did: resolution is the merge gate's signal
-              # and this step is the only place that knows what actually landed.
-              if [ "$state" = "false" ] && [ "$claims" = "true" ]; then
+            if [ "$claims" = "true" ]; then
+              # This thread's fix is on the branch. Resolve it HERE, after the
+              # push, even if the agent already did: resolution is the merge
+              # gate's signal and this step is the only place that knows what
+              # actually landed.
+              if [ "$state" = "false" ]; then
                 echo "Resolving $tid: its fix is on the branch."
                 # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
                 gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
@@ -628,16 +624,23 @@ jobs:
             if [ "$state" != "true" ]; then
               continue  # open and unfixed — the correct state; leave it alone
             fi
-            echo "Re-opening $tid: resolved by the fixer with no landed fix commit cited."
+            # Resolved, with no fix of this run's own behind it. Every thread
+            # that reaches here was resolved by the AGENT mid-run against STEP
+            # 5's instruction — the snapshot had it open when the run started,
+            # and a human's resolution names that human in `resolvedBy` and was
+            # filtered out by the query above — so this is exactly the unbacked
+            # claim the rail exists to undo.
+            echo "Re-opening $tid: resolved by the fixer with no fix of its own landed for it."
             # Correct the record ON THE THREAD as well. The agent replies and
-            # resolves mid-run, so when the run dies before pushing, the thread
-            # is left carrying a detailed "Fixed in <sha>" claim for a commit
-            # that only ever existed on the runner. Re-opening is not enough —
-            # the claim has to be contradicted where a human will read it.
+            # resolves mid-run, so the thread is left carrying a detailed
+            # "Fixed in <sha>" claim for a commit that only ever existed on the
+            # runner, or one that belongs to a different finding. Re-opening is
+            # not enough — the claim has to be contradicted where a human will
+            # read it.
             # shellcheck disable=SC2016  # $t/$b are GraphQL vars, kept literal
             gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' \
               -F t="$tid" \
-              -F b="🔓 **Re-opened by Latch.** This thread was marked resolved, but no fix for it landed on this branch — the run changed no code, or it ended before its push. Any commit cited above is not on this branch. Treat the finding as open." >/dev/null || true
+              -F b="🔓 **Re-opened by Latch.** This thread was marked resolved, but no fix for *this* finding landed on this branch — the run changed no code for it, it ended before its push, or a commit cited above belongs to a different thread. Treat the finding as open." >/dev/null || true
             # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
             gh api graphql -f query='mutation($t:ID!){ unresolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
               -F t="$tid" >/dev/null
@@ -646,7 +649,7 @@ jobs:
 
           echo "threads settled as fixed: $settled; re-opened: $reopened"
           if [ "$reopened" -gt 0 ]; then
-            gh pr comment "$PR" --body "🔓 **Latch re-opened ${reopened} review thread(s).** They were marked resolved, but no fix for them landed on this branch — either the run changed no code, or it ended before its push, so any commit those replies cite never reached the branch. A resolved thread is this loop's signal that a finding was actioned, so leaving them resolved would hide unactioned findings from any merge gate keyed on thread resolution. They are open again for a human or the next fixer cycle."
+            gh pr comment "$PR" --body "🔓 **Latch re-opened ${reopened} review thread(s).** They were marked resolved, but no fix for those findings landed on this branch — the run changed no code for them, it ended before its push, or the commit their replies cite belongs to a different finding. A resolved thread is this loop's signal that a finding was actioned, so leaving them resolved would hide unactioned findings from any merge gate keyed on thread resolution. They are open again for a human or the next fixer cycle."
           else
             echo "Nothing to re-open — every resolution here is backed by a landed fix."
           fi
