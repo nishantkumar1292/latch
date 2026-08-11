@@ -564,32 +564,39 @@ jobs:
             # resolved threads are none of our business.
             grep -Fxq "$tid" "$SNAP" || continue
 
-            landed=false
+            # TWO tests over the fixer's own replies on THIS thread, because
+            # the two directions must fail in opposite directions.
+            #
+            #   cites  (loose) — a landed SHA appears at all. Enough to LEAVE a
+            #     resolved thread alone: re-opening a genuinely fixed thread
+            #     over a paraphrase ("Addressed in <sha>") burns a fixer cycle
+            #     and can stop a converged PR from converging.
+            #   claims (strict) — a fix word sits next to that SHA and the reply
+            #     carries no hand-off language. Required to RESOLVE a thread the
+            #     fixer left open, because that direction asserts a finding was
+            #     actioned, and asserting it wrongly hides the finding — the
+            #     cardinal sin this whole rail exists to prevent. "Leaving this
+            #     for a human; related to the change in <sha>" must NOT resolve.
+            cites=false
+            claims=false
             if [ "${PUSHED:-false}" = "true" ] && [ -s "$FIX_SHAS" ]; then
               while read -r sha; do
                 short=${sha:0:7}
-                # A landed SHA cited in the fixer's OWN reply on THIS thread.
-                # Deliberately not keyed on the prompt's "Fixed in" wording: a
-                # guard that exists because prompts are advisory cannot make
-                # exact phrasing its discriminator, and a paraphrase ("Addressed
-                # in <sha>") would re-open a thread that is genuinely fixed —
-                # which burns a fixer cycle and can stop a converged PR from
-                # converging. The two errors are not symmetric, and the blob is
-                # already restricted to the fixer's replies (so a reviewer
-                # quoting hex cannot satisfy it), gated on a push having landed
-                # and on this thread being open when the run started.
-                if printf '%s' "$blob" | grep -qi "$short"; then
-                  landed=true
+                printf '%s' "$blob" | grep -qi "$short" || continue
+                cites=true
+                if printf '%s' "$blob" | grep -Eqi "(fixed|fixes|addressed|resolved).{0,40}${short}" \
+                   && ! printf '%s' "$blob" | grep -Eqi 'leav(e|ing) (this|it)|for a human|needs a human|human decision'; then
+                  claims=true
                   break
                 fi
               done < "$FIX_SHAS"
             fi
 
-            if [ "$landed" = "true" ]; then
+            if [ "$cites" = "true" ]; then
               # The fix is on the branch. Resolve it HERE, after the push, even
               # if the agent already did: resolution is the merge gate's signal
               # and this step is the only place that knows what actually landed.
-              if [ "$state" = "false" ]; then
+              if [ "$state" = "false" ] && [ "$claims" = "true" ]; then
                 echo "Resolving $tid: its fix is on the branch."
                 # shellcheck disable=SC2016  # $t is a GraphQL var, kept literal
                 gh api graphql -f query='mutation($t:ID!){ resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' \
