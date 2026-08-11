@@ -188,7 +188,18 @@ Latch is configured with a handful of workflow variables plus a per-repo policy 
 | `LATCH_EFFORT` | The fixer's reasoning effort (default `high`). |
 | `LATCH_MAX_TURNS` | Agent turn budget per run (default `80`). |
 | `LATCH_MAX_FIX_CYCLES` | Max fixer cycles per PR before human escalation (default `3`). |
+| `LATCH_TIMEOUT_MINUTES` | Wall clock for the fixer job (default `25`). Raise it together with `LATCH_MAX_TURNS` — more turns need more minutes, or the job is cancelled mid-run instead of finishing. |
 | verdict status mode | `non-blocking` (default) or `required` — see below. |
+
+Every variable is optional: **a fresh install with none of them set runs on the
+defaults**, which is the supported path. When you do set one, Latch validates it
+before use — these values land inside the agent's own command line, so the
+numbers must be JSON-numeric (garbage fails the run at config time; `0` and
+negatives fall back to the default) and `LATCH_MODEL` / `LATCH_EFFORT` /
+`LATCH_REVIEW_EFFORT` must be a single `[A-Za-z0-9._-]` token that does not
+start with `-`. A value like `claude-opus-4-8 --dangerously-skip-permissions`
+is refused loudly rather than quietly splicing a second flag into the agent's
+arguments.
 
 **`.latch/policy.yml`** — your review doctrine and repo landmines as versioned,
 per-repo policy: the falsify-the-claims doctrine, the landmine list (e.g. "answer

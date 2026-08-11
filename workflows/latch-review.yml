@@ -1,4 +1,4 @@
-# latch:template-version=0.1.0
+# latch:template-version=0.2.0
 name: Latch Review
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,6 +43,19 @@ name: Latch Review
 #   LATCH_MAX_TURNS      default 80               — agent turn budget per run.
 #   LATCH_MAX_FIX_CYCLES default 3                — read by latch-fix.yml; the
 #                        cap on fixer cycles before it escalates to a human.
+#   LATCH_TIMEOUT_MINUTES default 25              — read by latch-fix.yml; the
+#                        fixer job's wall clock. Raise it alongside
+#                        LATCH_MAX_TURNS: more turns need more minutes, or the
+#                        job is cancelled mid-run instead of finishing.
+#
+# SETTING NONE OF THESE IS THE SUPPORTED PATH — the defaults above are the
+# product, and a fresh install works with no variables at all. When you do set
+# one it is VALIDATED before use, because these values land inside the agent's
+# command line: the numbers must be JSON-numeric (garbage fails the run at
+# config time; 0 and negatives fall back to the default) and the free-text ones
+# must be a single [A-Za-z0-9._-] token, so a variable such as
+# `claude-opus-4-8 --dangerously-skip-permissions` can never splice a second
+# flag into the agent's arguments.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -102,6 +115,39 @@ jobs:
       id-token: write
       actions: read # let Latch read this PR's CI results
     steps:
+      - name: Validate Latch config
+        id: cfg
+        # Repo Variables end up inside the agent's command line, so they are
+        # input, not trivia. Numbers are validated by the expressions that use
+        # them (fromJSON below). Free text cannot be regex-checked in a GitHub
+        # expression, so it is checked here and handed on as a step output:
+        # `claude-opus-4-8 --dangerously-skip-permissions` in LATCH_MODEL would
+        # otherwise arrive at claude_args as TWO arguments and quietly turn off
+        # a safety nobody agreed to turn off. The values arrive as env and are
+        # never interpolated into this script, so a hostile value cannot escape
+        # into the shell either.
+        env:
+          LATCH_MODEL: ${{ vars.LATCH_MODEL }}
+          LATCH_REVIEW_EFFORT: ${{ vars.LATCH_REVIEW_EFFORT }}
+        run: |
+          set -euo pipefail
+          model="${LATCH_MODEL:-claude-opus-4-8}"
+          effort="${LATCH_REVIEW_EFFORT:-xhigh}"
+          # Reject anything that is not one plain token, and anything that
+          # starts with a dash: `--dangerously-skip-permissions` is all-allowed
+          # characters, but as the value of `--model` an option parser can read
+          # the missing value and take the next dash-word as a FLAG. One token,
+          # never dash-led, is the only shape that cannot become an argument of
+          # its own.
+          reject() {
+            echo "::error title=Invalid $1::\"$2\" must be a single [A-Za-z0-9._-] token that does not start with '-'. Latch refuses it: this value is passed to the agent as a command-line argument, where a space or a leading dash would add a flag nobody configured."
+            return 1
+          }
+          case "$model" in ''|-*|*[!A-Za-z0-9._-]*) reject LATCH_MODEL "$model";; esac
+          case "$effort" in ''|-*|*[!A-Za-z0-9._-]*) reject LATCH_REVIEW_EFFORT "$effort";; esac
+          { echo "model=$model"; echo "effort=$effort"; } >> "$GITHUB_OUTPUT"
+          echo "model=$model effort=$effort"
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -241,10 +287,19 @@ jobs:
             DO-NOT-MERGE (fixes are still outstanding in both). This gate is
             NON-BLOCKING by default — a team makes it a required check in branch
             protection only after it trusts the false-positive rate.
+          # Every value here is validated: --model/--effort come from the
+          # config step as single [A-Za-z0-9._-] tokens, and --max-turns is the
+          # validated-numeric form, not a bare `vars.X || '80'`. GitHub
+          # truthiness is emptiness, not value: a non-empty '0' would pass
+          # straight through and `--max-turns 0` aborts the agent before its
+          # first turn. `> 0` sends 0 and negatives back to the default;
+          # fromJSON asserts JSON-numeric, so garbage — or a flag-injecting
+          # value like `80 --dangerously-skip-permissions` — fails the run
+          # LOUDLY at config time, which is the point.
           claude_args: |
-            --model ${{ vars.LATCH_MODEL || 'claude-opus-4-8' }}
-            --effort ${{ vars.LATCH_REVIEW_EFFORT || 'xhigh' }}
-            --max-turns ${{ vars.LATCH_MAX_TURNS || '80' }}
+            --model ${{ steps.cfg.outputs.model }}
+            --effort ${{ steps.cfg.outputs.effort }}
+            --max-turns ${{ fromJSON(vars.LATCH_MAX_TURNS || '80') > 0 && vars.LATCH_MAX_TURNS || '80' }}
             --allowedTools "Bash,Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment"
 
       # Publish the verdict as a commit status in a DEDICATED step, not from the
@@ -330,6 +385,39 @@ jobs:
       id-token: write
       actions: read
     steps:
+      - name: Validate Latch config
+        id: cfg
+        # Repo Variables end up inside the agent's command line, so they are
+        # input, not trivia. Numbers are validated by the expressions that use
+        # them (fromJSON below). Free text cannot be regex-checked in a GitHub
+        # expression, so it is checked here and handed on as a step output:
+        # `claude-opus-4-8 --dangerously-skip-permissions` in LATCH_MODEL would
+        # otherwise arrive at claude_args as TWO arguments and quietly turn off
+        # a safety nobody agreed to turn off. The values arrive as env and are
+        # never interpolated into this script, so a hostile value cannot escape
+        # into the shell either.
+        env:
+          LATCH_MODEL: ${{ vars.LATCH_MODEL }}
+          LATCH_REVIEW_EFFORT: ${{ vars.LATCH_REVIEW_EFFORT }}
+        run: |
+          set -euo pipefail
+          model="${LATCH_MODEL:-claude-opus-4-8}"
+          effort="${LATCH_REVIEW_EFFORT:-xhigh}"
+          # Reject anything that is not one plain token, and anything that
+          # starts with a dash: `--dangerously-skip-permissions` is all-allowed
+          # characters, but as the value of `--model` an option parser can read
+          # the missing value and take the next dash-word as a FLAG. One token,
+          # never dash-led, is the only shape that cannot become an argument of
+          # its own.
+          reject() {
+            echo "::error title=Invalid $1::\"$2\" must be a single [A-Za-z0-9._-] token that does not start with '-'. Latch refuses it: this value is passed to the agent as a command-line argument, where a space or a leading dash would add a flag nobody configured."
+            return 1
+          }
+          case "$model" in ''|-*|*[!A-Za-z0-9._-]*) reject LATCH_MODEL "$model";; esac
+          case "$effort" in ''|-*|*[!A-Za-z0-9._-]*) reject LATCH_REVIEW_EFFORT "$effort";; esac
+          { echo "model=$model"; echo "effort=$effort"; } >> "$GITHUB_OUTPUT"
+          echo "model=$model effort=$effort"
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -342,8 +430,17 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "@latch review"
           allowed_bots: "claude,github-actions"
+          # Every value here is validated: --model/--effort come from the
+          # config step as single [A-Za-z0-9._-] tokens, and --max-turns is the
+          # validated-numeric form, not a bare `vars.X || '80'`. GitHub
+          # truthiness is emptiness, not value: a non-empty '0' would pass
+          # straight through and `--max-turns 0` aborts the agent before its
+          # first turn. `> 0` sends 0 and negatives back to the default;
+          # fromJSON asserts JSON-numeric, so garbage — or a flag-injecting
+          # value like `80 --dangerously-skip-permissions` — fails the run
+          # LOUDLY at config time, which is the point.
           claude_args: |
-            --model ${{ vars.LATCH_MODEL || 'claude-opus-4-8' }}
-            --effort ${{ vars.LATCH_REVIEW_EFFORT || 'xhigh' }}
-            --max-turns ${{ vars.LATCH_MAX_TURNS || '80' }}
+            --model ${{ steps.cfg.outputs.model }}
+            --effort ${{ steps.cfg.outputs.effort }}
+            --max-turns ${{ fromJSON(vars.LATCH_MAX_TURNS || '80') > 0 && vars.LATCH_MAX_TURNS || '80' }}
             --allowedTools "Bash,Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment"
