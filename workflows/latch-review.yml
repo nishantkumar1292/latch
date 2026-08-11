@@ -48,6 +48,14 @@ name: Latch Review
 #                        LATCH_MAX_TURNS: more turns need more minutes, or the
 #                        job is cancelled mid-run instead of finishing.
 #
+# A PR THAT EDITS THIS FILE GETS NO VERDICT, BY DESIGN — not a broken gate.
+# claude-code-action refuses to run when the workflow file on the PR differs
+# from the copy on the default branch ("Workflow validation failed"), so the
+# review step no-ops and the status reads "did not produce a verdict". That is
+# the action's own anti-tamper, the same instinct as the fixer's, and it means
+# a change to the reviewer cannot review itself. Rehearse such a change on a
+# throwaway PR after merge instead.
+#
 # SETTING NONE OF THESE IS THE SUPPORTED PATH — the defaults above are the
 # product, and a fresh install works with no variables at all. When you do set
 # one it is VALIDATED before use, because these values land inside the agent's
