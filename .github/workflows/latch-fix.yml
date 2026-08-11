@@ -326,13 +326,18 @@ jobs:
             STEP 5 — reply to threads; do NOT resolve any of them (GITHUB_TOKEN
             -> your replies post as github-actions[bot], which cannot re-trigger
             the review):
-              For a thread you FIXED, reply — and ONLY reply. Open with exactly
-              "Fixed in <SHA>: " so a human can trace the claim; the job
-              resolves the thread itself once that commit is pushed. You have
-              not pushed anything, so a thread you resolve here would claim a
-              fix that does not exist yet — and if this run dies before its
-              push, that claim outlives the commit:
+              For a thread you FIXED, reply and record the thread id — do NOT
+              resolve it. You have not pushed anything, so a thread you resolve
+              here would claim a fix that does not exist yet, and if this run
+              dies before its push that claim outlives the commit. The file is
+              how you tell the job which threads to resolve once the push
+              lands; the reply is for the human reading the thread:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="Fixed in <SHA>: <one line on what changed and why it resolves the finding>."
+                echo "<threadId>" >> "$RUNNER_TEMP/latch-fixed-threads.txt"
+              List a thread there ONLY if you changed code for it in this run.
+              A thread you left for a human must NOT appear in that file, and a
+              thread you omit simply stays open — the job never resolves from
+              your prose, only from this list.
               For a thread you DISAGREE with or that belongs elsewhere, reply with
               your reasoning and do NOT resolve it:
                 gh api graphql -f query='mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){ comment{ id } } }' -F t=<threadId> -F b="<why no change is needed here / where the action belongs>. Leaving this unresolved for a human."
@@ -395,7 +400,7 @@ jobs:
             fi
             echo "::warning title=Latch salvaged a completed fixer run::The agent finished successfully in ${TURNS} turns but the action failed the step afterwards. Pushing the finished work instead of discarding it."
             # shellcheck disable=SC2016  # the backticks are markdown code spans, not command substitution
-            RESCUE_NOTE=$(printf '\n\n⚠️ **The step failed *after* the agent had finished successfully** (%s turns; the action re-checks the turn count once the run is over and fails the step when it exceeds `--max-turns`). The finished work was kept and pushed rather than discarded — the run still shows as failed so the discrepancy stays visible. Raise `LATCH_MAX_TURNS` to stop it recurring.' "$TURNS")
+            RESCUE_NOTE=$(printf '\n\n⚠️ **The step failed *after* the agent had finished successfully** (%s turns; the action re-checks the turn count once the run is over and fails the step when it exceeds `--max-turns`). Its finished work was kept rather than discarded — the run still shows as failed so the discrepancy stays visible. Raise `LATCH_MAX_TURNS` to stop it recurring.' "$TURNS")
           fi
 
           # Resolve the branch from the PR, not from `git rev-parse --abbrev-ref
@@ -517,6 +522,7 @@ jobs:
           set -euo pipefail
           SNAP="$RUNNER_TEMP/latch-open-threads.txt"
           FIX_SHAS="$RUNNER_TEMP/latch-fix-shas.txt"
+          FIXED_IDS="$RUNNER_TEMP/latch-fixed-threads.txt"
           if [ ! -s "$SNAP" ]; then
             echo "No thread snapshot (the fixer never started) — nothing to re-couple."
             exit 0
@@ -566,25 +572,33 @@ jobs:
             #     resolved thread alone: re-opening a genuinely fixed thread
             #     over a paraphrase ("Addressed in <sha>") burns a fixer cycle
             #     and can stop a converged PR from converging.
-            #   claims (strict) — a fix word sits next to that SHA and the reply
-            #     carries no hand-off language. Required to RESOLVE a thread the
-            #     fixer left open, because that direction asserts a finding was
-            #     actioned, and asserting it wrongly hides the finding — the
-            #     cardinal sin this whole rail exists to prevent. "Leaving this
-            #     for a human; related to the change in <sha>" must NOT resolve.
+            #   claims (strict) — the agent listed this thread id in
+            #     latch-fixed-threads.txt, its structured "I changed code for
+            #     this" signal. Required to RESOLVE a thread it left open,
+            #     because that direction asserts a finding was ACTIONED and
+            #     asserting it wrongly hides the finding — the cardinal sin this
+            #     rail exists to prevent. Deliberately NOT read out of the reply
+            #     prose: a rail whose premise is "prompts are advisory" cannot
+            #     decide the dangerous direction by grepping the agent's wording
+            #     ("the related cleanup was addressed in <sha>" is a hand-off,
+            #     not a fix, and no blocklist of phrases ever catches them all).
+            #     An unlisted thread just stays open — the safe direction.
             cites=false
             claims=false
-            if [ "${PUSHED:-false}" = "true" ] && [ -s "$FIX_SHAS" ]; then
-              while read -r sha; do
-                short=${sha:0:7}
-                printf '%s' "$blob" | grep -qi "$short" || continue
+            if [ "${PUSHED:-false}" = "true" ]; then
+              if [ -s "$FIX_SHAS" ]; then
+                while read -r sha; do
+                  short=${sha:0:7}
+                  if printf '%s' "$blob" | grep -qi "$short"; then
+                    cites=true
+                    break
+                  fi
+                done < "$FIX_SHAS"
+              fi
+              if [ -s "$FIXED_IDS" ] && grep -Fxq "$tid" "$FIXED_IDS"; then
+                claims=true
                 cites=true
-                if printf '%s' "$blob" | grep -Eqi "(fixed|fixes|addressed|resolved).{0,40}${short}" \
-                   && ! printf '%s' "$blob" | grep -Eqi 'leav(e|ing) (this|it)|for a human|needs a human|human decision'; then
-                  claims=true
-                  break
-                fi
-              done < "$FIX_SHAS"
+              fi
             fi
 
             if [ "$cites" = "true" ]; then

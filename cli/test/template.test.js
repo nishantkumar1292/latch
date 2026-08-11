@@ -70,6 +70,11 @@ test('thread resolution is mechanically coupled to a landed fix', () => {
   assert.match(FIX, /latch-open-threads\.txt/);
   assert.match(FIX, /unresolveReviewThread/);
   assert.match(FIX, /Resolving \$tid: its fix is on the branch/);
+  // ...and the resolve direction reads the agent's structured list, never its
+  // prose: a rail whose premise is "prompts are advisory" cannot decide the
+  // dangerous direction by grepping wording.
+  assert.match(FIX, /latch-fixed-threads\.txt/);
+  assert.match(FIX, /grep -Fxq "\$tid" "\$FIXED_IDS"/);
   // It must also run when the push failed or the job was cancelled — that is
   // precisely when a resolution has no commit behind it.
   assert.match(FIX, /Settle review threads against what actually landed\n\s+#[\s\S]*?if: always\(\)/);
