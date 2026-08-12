@@ -46,21 +46,24 @@ sequenceDiagram
     Note over Rev,GH: review posted under identity A →<br/>fires pull_request_review event
     GH->>Fix: pull_request_review event triggers fix workflow
 
+    Fix->>Fix: any thread still PENDING? if not, exit green in seconds
     Fix->>Fix: read every unresolved review-bot thread
     Fix->>Fix: JUDGE each thread on its merits
     alt real defect in this PR
-        Fix->>Fix: fix in code, run touched-path checks
-        Fix->>GH: reply "Fixed in <sha>", resolve thread
+        Fix->>Fix: fix in code, run touched-path checks,<br/>plan a "fixed" reply
     else wrong / out-of-scope / belongs elsewhere
-        Fix->>GH: reply with reasoning, leave thread OPEN for a human
+        Fix->>Fix: change nothing, plan a "kept" reply
     end
+    Note over Fix: the agent posts NOTHING — it writes a<br/>reply plan and stops
 
     alt committed a real fix
         Fix->>GH: push fix with GITHUB_TOKEN (recursion guard: triggers nothing)
+        Fix->>GH: re-fetch and VERIFY the commit is on the branch
+        Fix->>GH: replay the plan — "Fixed in sha" + resolve;<br/>refusals posted and left OPEN for a human
         Fix->>GH: workflow_dispatch → re-dispatch the REVIEW (fix → review hop)
         GH->>Rev: re-review the PR head
     else no code change (all threads refused)
-        Fix->>GH: comment "no change — needs a human", pause the loop
+        Fix->>GH: replay the plan (refusals only), comment<br/>"no change — needs a human", pause the loop
     end
 
     Note over Rev,GH: clean re-review posts no findings →<br/>no event → loop ENDS, PR sits mergeable
@@ -92,12 +95,18 @@ sequenceDiagram
    re-running the checks (they ran on the pre-race commit), because the check commands
    are policy data only the agent resolves — there, too, the re-dispatched review and
    the human merge are the backstop.
-6. **Resolution is coupled to a landed fix.** A resolved thread is the loop's only
-   signal that a finding was *actioned*, so resolving a thread the fixer merely replied
-   to would hide an unactioned finding from any merge gate keyed on thread resolution.
-   The prompt forbids it and the job **enforces** it: it snapshots the open reviewer
-   threads before the agent runs, and afterwards re-opens every one the fixer resolved
-   without a fix commit landing on the branch — announced on the PR, never silently.
+6. **Nothing the fixer says outlives what it pushed.** A resolved thread is the loop's
+   only signal that a finding was *actioned*, and a "Fixed in `<sha>`" reply is a claim
+   about the branch — so neither is the agent's to make. It writes a reply **plan** and
+   posts nothing; the job pushes, verifies the commit is an ancestor of the remote
+   branch, and only then replays the plan, minting the commit claim itself from the sha
+   it pushed. If the push fails or cannot be verified, not one reply is posted. The
+   guard covers refusal replies too — any body that dates its own claim to a commit is
+   dropped, because minting a commit claim is the job's privilege. Behind that,
+   unchanged, sits the repair rail: the job snapshots the open reviewer threads before
+   the agent runs and afterwards re-opens any that are resolved without a fix landing
+   on the branch — announced on the PR, never silently. See
+   [OPERATIONS.md](./OPERATIONS.md#1-the-phantom-fix) for the failure this prevents.
 7. **A finished run is never binned.** `claude-code-action` re-checks the agent's
    turn count *after* the run and fails the step when it exceeds `--max-turns` — even
    when the agent itself returned success (seen live: 88 turns against a cap of 80,
@@ -106,7 +115,20 @@ sequenceDiagram
    when the post-hoc check disagrees the fixer reads the run's own execution log,
    pushes the finished work if it completed, and says so loudly on the PR. Any run
    whose log does *not* show a successful result still fails.
-8. **Push races are recovered, not misdiagnosed.** The fixer works on a checkout that
+8. **A fixer run that has nothing to do stops before it costs anything.** The guard's
+   "is there work here?" answer can be stale by the time the fix job runs — most often
+   because an earlier fixer already *answered* those threads and left them open on
+   purpose, which the guard's unresolved-only query still counts as work. So the fix
+   job's first step re-asks a narrower question — is any thread still *pending*:
+   unresolved, opened by the reviewer, and **not** already answered by a fixer's own
+   push-back — and exits green in seconds when nothing is, before the checkout and
+   before the agent. A human's reply after a push-back makes the thread pending again,
+   which is the right edge for free. (Concurrency is a separate matter and currently a
+   blunt one: a single workflow-level group with `cancel-in-progress: true`, so a newer
+   review event cancels an in-flight fixer. Splitting it — a cancelling filter on the
+   guard, a queueing group on the fix job — is outstanding work; see
+   [OPERATIONS.md §6](./OPERATIONS.md#6-a-burst-of-review-events-and-what-it-does-to-an-in-flight-fixer).)
+9. **Push races are recovered, not misdiagnosed.** The fixer works on a checkout that
    can go stale under it: a human, another agent, or a base merge can push to the PR
    branch mid-run, and its own push is then rejected non-fast-forward. The job rebases
    the fix onto the new tip and retries **once**. A rebase *conflict* means the
@@ -118,11 +140,17 @@ sequenceDiagram
 The fixer does **not** blindly comply. For each unresolved reviewer thread it reads the
 surrounding code and decides:
 
-- **(a) a legitimate defect in this PR's code** → fix it, reply `Fixed in <sha>: …`,
-  resolve the thread;
+- **(a) a legitimate defect in this PR's code** → fix it, and plan a `fixed` reply: the
+  job posts it as `Fixed in <sha>: …` and resolves the thread once that sha is on the
+  branch;
 - **(b) it disagrees after reading the code, or the action belongs on a different
-  branch/PR** → change nothing, reply with concrete reasoning, and **leave the thread
-  open for a human**.
+  branch/PR** → change nothing, plan a `kept` reply carrying concrete reasoning, and
+  **leave the thread open for a human**.
+
+Both are *planned*, not posted — see guard 6. A `fixed` reply also states the
+**verification level** behind it (checks passed / parse-only / no toolchain here),
+because the runner installs no project toolchains and a reader who is not told will
+assume the strongest reading.
 
 The reviewer is skeptical and usually right, but not always. This standing-to-refuse is
 what stops the loop thrashing on a wrong review comment, and — shown in a demo — it is
