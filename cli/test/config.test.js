@@ -110,13 +110,22 @@ test('a fixer that runs out of wall clock still reports', () => {
   // success() nor failure() — without cancelled() the loop stalls in silence.
   // The HANDLED gate stays on that condition: the push step still owns the
   // causes it can name, so this reporter must not double-post over it.
-  assert.match(FIX, /if: \(failure\(\) \|\| cancelled\(\)\) && env\.HANDLED != 'true'/);
+  // Asserted by SHAPE, not by one exact line: reply-after-push added an
+  // `unverified` exclusion to this same `if:` and wrapped it across lines. What
+  // must hold is the union — cancelled() is honoured, the HANDLED gate
+  // survives, and the state that owns its own comment is excluded.
+  const cond = /- name: Report fixer failure\n[\s\S]*?if: >-\n([\s\S]*?)\n\s+env:/.exec(FIX);
+  assert.ok(cond, 'reporter condition found');
+  assert.match(cond[1], /\(failure\(\) \|\| cancelled\(\)\)/);
+  assert.match(cond[1], /env\.HANDLED != 'true'/);
+  assert.match(cond[1], /steps\.push\.outputs\.state != 'unverified'/);
   assert.match(FIX, /JOB_STATUS: \$\{\{ job\.status \}\}/);
   assert.match(FIX, /LATCH_TIMEOUT_MINUTES/);
-  // ...and the cancelled branch must say "timeout", not reach for the
-  // push-race causes, which apply only to a run that actually failed.
-  assert.match(FIX, /if \[ "\$JOB_STATUS" = "cancelled" \]; then[\s\S]*?ran past the job timeout/);
-  assert.match(FIX, /else\n\s+#[\s\S]*?case "\$\{PUSH_RACE:-\}" in/);
+  // ...and the cancelled branch must say "timeout", name the variable that
+  // raises it, and NOT reach for the push-race causes, which apply only to a
+  // run that actually failed. It returns rather than falling through.
+  assert.match(FIX, /if \[ "\$JOB_STATUS" = "cancelled" \]; then[\s\S]*?ran past the job timeout[\s\S]*?LATCH_TIMEOUT_MINUTES[\s\S]*?exit 0\n\s+fi/);
+  assert.match(FIX, /exit 0\n\s+fi\n\s+# Name the ACTUAL cause[\s\S]*?case "\$\{PUSH_RACE:-\}" in/);
 });
 
 test('the fixer queues and is never cancelled mid-push', () => {

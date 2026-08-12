@@ -122,6 +122,21 @@ These revise the founding decisions above where they conflict.
 - **Domain `latchgate.dev` purchased; DNS already points at GitHub Pages.** The
   `latchgate` name survives only as the domain — there is no `latchgate` GitHub org.
 
+### 2026-08-12 — the fixer stops holding the pen
+
+- **Replies and resolutions move behind the push.** The fixer agent no longer posts to
+  GitHub at all: it writes a reply **plan** and stops, and the job pushes, verifies the
+  commit is an ancestor of the remote branch, then replays the plan and mints the
+  "Fixed in `<sha>`" claim itself. This supersedes the earlier arrangement (agent
+  replies mid-run, job repairs afterwards) as the *primary* mechanism — the repair rail
+  from the resolution work stays as the backstop, now fed by job-written evidence
+  rather than by the agent's own bookkeeping. Rationale and the failure it prevents:
+  [docs/OPERATIONS.md](./docs/OPERATIONS.md). Do not hand the agent back the ability to
+  reply or resolve; ordering is the whole guarantee, and diligence is not a substitute.
+- **The fix job re-asks whether it is needed before checking anything out.** Queued
+  fixers from an event burst exit green in seconds instead of paying for a checkout and
+  an agent to discover the threads are already answered.
+
 ---
 
 ## Current status
@@ -169,6 +184,7 @@ Keep this checklist honest: a box is checked only when the thing exists and work
 | `docs/PRODUCT.md` | The product design — surfaces, v1 scope, quickstart detail. | docs |
 | `docs/PRICING.md` | License + unit economics + packaging + billing rails. | docs |
 | `docs/ARCHITECTURE.md` | How the loop works mechanically: sequence, identities, guards; hosted sketch as future. | docs |
+| `docs/OPERATIONS.md` | Running the loop in anger: the failure modes and their remedies, and the termination protocol for deciding when a PR is converged. | docs |
 | `docs/ROADMAP.md` | Phased checklist with current truth. | docs |
 | _(launch ops — moved out)_ | The demo storyboard, honesty armor, and launch copy (X/HN) now live in the **private** ops repo `github.com/nishantkumar1292/latch-ops` (`LAUNCH.md`), kept private pre-launch so pre-published scripts don't spoil the demo. | ops |
 | `INSTALL_FOR_AGENTS.md` | Machine-readable install protocol for a coding agent. | **engine builder** |
