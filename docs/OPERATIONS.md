@@ -149,43 +149,42 @@ Calibration, so the two caps stay in step: **a turn costs roughly 10-13 seconds*
 a minute or two of job setup. A cap of 60 turns is therefore a ~15-minute run before any
 job-side work. Raising the turn cap without raising the timeout does not buy a longer
 run — it moves the failure from a loud turn-cap error to a silent cancellation, which is
-strictly worse. Raise them together.
+strictly worse. Raise them together: `LATCH_MAX_TURNS` and `LATCH_TIMEOUT_MINUTES`.
 
 The expensive moment for a cancellation is *after* the push, during the reply replay:
 the fix is on the branch and the threads are half-answered. That is why the failure
 reporter consults the push state before it describes what landed.
 
-### 6. A burst of review events, and what it does to an in-flight fixer
+### 6. A burst of review events is a burst of fixers
 
 Inline comments from one review arrive as several events over a minute or two, and each
-one is a candidate fixer run.
+one is a candidate fixer run. Three mechanisms bound the cost, and they are deliberately
+separate because they want opposite things.
 
-**What ships today, stated plainly:** the fix workflow's concurrency group is at
-**workflow level** with `cancel-in-progress: true`. A burst therefore collapses to one
-surviving run — but by *cancelling* the earlier ones, including a fixer that is already
-mid-push. Treat that as a live hazard: while a fixer is running, a second review event
-on the same PR can kill it. Prefer a hand dispatch over racing a burst, and read §5 —
-the failure reporter fires on cancellation, so a killed fixer says so on the PR rather
-than stalling in silence.
+**Two levels of concurrency, never one.** A workflow-level group is claimed by the *run*
+before any job condition is evaluated, so a harmless event could cancel a fixer mid-push.
+Split instead:
 
-**The shape it wants**, and the two rules behind it:
+- The **guard** carries a burst filter (`cancel-in-progress: true`). It is twenty seconds
+  of API calls, so the only thing it can ever cancel is another guard. On its own it does
+  **not** reduce a PR to one fixer — it collapses only the events arriving inside its own
+  short window.
+- The **fix job** carries serialisation (`cancel-in-progress: false`) — **queue, never
+  cancel**. A newer review event killing a fixer mid-push is the exact failure this
+  prevents, so freshness is never worth trading for it. The group is deliberately not the
+  guard's: sharing one would put a running fixer under the guard's cancelling policy.
 
-- **Dedupe the burst where it is cheap.** A group on the *guard* — twenty seconds of API
-  calls — can cancel freely, because the only thing it can ever cancel is another guard.
-- **Never cancel a running fixer.** The fix job wants its own group with
-  `cancel-in-progress: false`: queue, never cancel. Freshness is never worth trading for
-  a fixer killed mid-push.
+**And the precheck, because queueing bounds the damage but not the bill.** A queued run
+is released only after the one ahead of it pushed, replied and resolved — so it has
+nothing left to do, and would still pay for a checkout and a full agent spin-up to find
+that out. The fix job's first step re-asks before the checkout: is any thread still
+*pending* — unresolved, opened by the reviewer, and not already answered by a fixer's own
+push-back? A thread the fixer pushed back on is answered, not pending; a human's reply
+after that push-back makes it pending again. A run with nothing pending exits green in
+seconds, without a checkout, an agent, or a PR comment.
 
-Splitting the single workflow-level group into those two is the outstanding change; a
-group that covers both jobs cannot express them, because one wants to cancel and the
-other must not.
-
-Either way, the fix job's first step re-asks the question before the checkout: is any
-thread still *pending* — unresolved, opened by the reviewer, and not already answered by
-a fixer's own push-back? A thread the fixer pushed back on is answered, not pending; a
-human's reply after that push-back makes it pending again. A run with nothing pending
-exits green in seconds, without a checkout, an agent, or a PR comment. That saves a
-duplicate reply today, and once fixers queue it is what makes a queued run cheap.
+Queueing does **not** refresh the cycle count — the guard that computed it ran back when
+the burst arrived — so do not rely on it to make the cycle cap exact.
 
 ### 7. The cycle cap
 
