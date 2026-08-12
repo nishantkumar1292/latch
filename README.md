@@ -25,8 +25,8 @@ one human action the loop deliberately reserves: pressing merge.
 - **Site:** <https://latchgate.dev>.
 - **npm:** `latch-gate` (CLI binary: `latch`).
 - **Docs:** [strategy](./docs/STRATEGY.md) · [product](./docs/PRODUCT.md) ·
-  [architecture](./docs/ARCHITECTURE.md) · [pricing](./docs/PRICING.md) ·
-  [roadmap](./docs/ROADMAP.md)
+  [architecture](./docs/ARCHITECTURE.md) · [operations](./docs/OPERATIONS.md) ·
+  [pricing](./docs/PRICING.md) · [roadmap](./docs/ROADMAP.md)
 
 ---
 
@@ -95,7 +95,7 @@ We do **not** sell "merge confidence." The loop never underwrites a merge — se
 
 ## How the loop actually works
 
-Six mechanics carry the whole design. None is optional; each exists because a
+Seven mechanics carry the whole design. None is optional; each exists because a
 one-shot autofix handoff fails without it.
 
 1. **Two identities, one direction.** The reviewer posts under identity A; the fixer
@@ -115,9 +115,17 @@ one-shot autofix handoff fails without it.
 5. **Cycle cap with human escalation.** At most 3 fixer cycles per PR (tracked with a
    `latch-cycle:N` label). On the cap, Latch @-mentions the author, explains what it
    could not settle, and stops.
-6. **It never merges.** A clean review posts no findings, so no event fires and the
+6. **Reply after push, never before.** The fixer holds no pen of its own: it writes a
+   reply *plan* and posts nothing. The job pushes, verifies the commit is really on
+   the branch, and only then posts the replies — minting the "Fixed in `<sha>`" claim
+   itself. So a thread can never read as fixed while the fix exists only on a runner
+   that has already died.
+7. **It never merges.** A clean review posts no findings, so no event fires and the
    loop simply ends with the PR sitting mergeable. The convergence is the product;
    the merge is a human's.
+
+Running it in anger — the failure modes, and the protocol for deciding when a PR is
+converged — is [docs/OPERATIONS.md](./docs/OPERATIONS.md).
 
 The fixer does not blindly comply. It **judges each thread on its merits** — fixing
 real defects, and *refusing* a finding it disagrees with (or that belongs on a
