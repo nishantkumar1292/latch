@@ -1,4 +1,4 @@
-# latch:template-version=0.1.0
+# latch:template-version=0.2.0
 name: Latch Review
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,6 +43,28 @@ name: Latch Review
 #   LATCH_MAX_TURNS      default 80               — agent turn budget per run.
 #   LATCH_MAX_FIX_CYCLES default 3                — read by latch-fix.yml; the
 #                        cap on fixer cycles before it escalates to a human.
+#   LATCH_ALERT          default on               — set to `off` to stop Latch
+#                        opening/updating a `latch-alert` issue when the gate
+#                        produces no verdict. Leave it on: a gate that fails
+#                        silently is worse than no gate, because the merge box
+#                        still shows a check (see ENGINE STATUS below).
+#
+# ── ENGINE STATUS (why there is a second, always-green status) ───────────────
+# Failure mode observed in production, 2026: the reviewer's model allowance was
+# exhausted. OIDC succeeded, the app token succeeded, `system/init` printed
+# normally, and then claude-code-action returned
+#   {"type":"result","subtype":"success","is_error":true,"duration_ms":613,
+#    "num_turns":1,"total_cost_usd":0.001322}
+# — the first model call rejected in 613ms, error body suppressed for security.
+# In GitHub's UI that is indistinguishable from an ordinary failing check, so
+# every review in the repo failed for FOUR HOURS before anyone noticed. During
+# the triage someone then read the model name out of a checkout 76 commits
+# behind and reported the wrong one.
+# So Latch now SELF-REPORTS: a second, purely informational commit status
+# `latch/engine` carrying the model / effort / turns / duration / outcome the
+# run actually had, plus a `latch-alert` issue when the gate produced no
+# verdict. "Which model reviewed this PR?" becomes an artifact of the run
+# instead of something inferred from a file at some commit.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -94,10 +116,14 @@ jobs:
        github.event.pull_request.user.login != 'dependabot[bot]') ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # A wedged review must not sit on GitHub's 6-hour default burning a runner
+    # (and holding the PR's gate absent) — cap it. 30m is comfortably above a
+    # real xhigh review; latch-fix.yml caps its fixer at 25 for the same reason.
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
-      issues: write
+      issues: write # open/close the latch-alert issue when the gate fails
       statuses: write # publish the latch/merge-gate commit status (the verdict)
       id-token: write
       actions: read # let Latch read this PR's CI results
@@ -147,6 +173,14 @@ jobs:
           echo "synthesised pull_request event for PR #${pr}"
 
       - name: Latch review
+        # `id` only so the publisher step below can read this step's
+        # `execution_file` output and report what actually ran. It changes
+        # NOTHING about how the review authenticates or posts: the review must
+        # keep posting as claude[bot] (the action's own app auth) or the
+        # pull_request_review event never fires and the fix hop dies. Do not add
+        # `github_token:` here to "make the outputs work" — the outputs are
+        # already there.
+        id: engine
         uses: anthropics/claude-code-action@v1
         env:
           # No-ops for a real pull_request event (these equal the runner's own
@@ -255,12 +289,38 @@ jobs:
       # step publishes the status with GITHUB_TOKEN (which we grant statuses:write
       # above). Runs always: a crashed review still gets an honest `error` status
       # rather than silently leaving the gate absent.
+      #
+      # ORDER IS LOAD-BEARING. This step does three things and they are strictly
+      # ranked: (1) publish latch/merge-gate — the only output anyone gates on;
+      # (2) publish latch/engine — a nameplate; (3) raise/clear the latch-alert
+      # issue. (1) runs first and unguarded. (2) and (3) are DIAGNOSTICS and each
+      # runs inside a `( ... ) || echo` subshell, so a jq parse error, a 403, or
+      # a missing file can never turn this job red or suppress the real verdict.
+      # The whole step is `set -euo pipefail`; the subshell guard is what keeps
+      # that strictness from being a foot-gun for the optional parts.
       - name: Publish latch/merge-gate status
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
           HEAD_SHA_EVENT: ${{ github.event.pull_request.head.sha }}
+          # The action's own execution log: RUNNER_TEMP/claude-execution-output.json,
+          # a JSON ARRAY of the run's messages whose last `{"type":"result",...}`
+          # element carries is_error / num_turns / duration_ms / total_cost_usd.
+          # Empty when the action died before writing one — everything below
+          # degrades to the configured values rather than failing.
+          EXECUTION_FILE: ${{ steps.engine.outputs.execution_file }}
+          # The RESOLVED config, so a degraded run still names the model that
+          # WOULD have run instead of reporting nothing. These expressions must
+          # stay identical to the claude_args above or the nameplate lies.
+          CFG_MODEL: ${{ vars.LATCH_MODEL || 'claude-opus-4-8' }}
+          CFG_EFFORT: ${{ vars.LATCH_REVIEW_EFFORT || 'xhigh' }}
+          CFG_TURNS: ${{ vars.LATCH_MAX_TURNS || '80' }}
+          # Alerting is ON by default; `gh variable set LATCH_ALERT off` opts out.
+          # Deliberately read as an env var inside the script and NOT as a
+          # step-level `if:` — this step must keep running always, or turning
+          # alerts off would also stop publishing the verdict.
+          ALERT: ${{ vars.LATCH_ALERT || 'on' }}
         run: |
           set -euo pipefail
           sha="$HEAD_SHA_EVENT"
@@ -270,6 +330,16 @@ jobs:
 
           verdict_file="$RUNNER_TEMP/latch-verdict.txt"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # verdict_ok=1 ONLY when the reviewer wrote a verdict we could parse.
+          # THIS FILE — not the action step's outcome — is the signal for "the
+          # gate worked". In the 2026 allowance incident the action exited
+          # `subtype:"success"` after a 613ms rejected first call, so
+          # steps.engine.outcome was green while no review happened at all. The
+          # verdict file is the one contract that cannot report success without
+          # the reviewer having actually reasoned. Everything downstream (the
+          # engine outcome class, the alert) keys off this, never off the step.
+          verdict_ok=0
 
           if [ ! -s "$verdict_file" ]; then
             state=error
@@ -292,6 +362,7 @@ jobs:
             esac
             if [ -n "$verdict" ]; then
               desc="${verdict}: ${summary}"
+              verdict_ok=1
             else
               desc="Latch review did not produce a valid verdict — see the run log."
             fi
@@ -306,6 +377,160 @@ jobs:
             -f description="$desc" \
             -f target_url="$run_url" >/dev/null
           echo "latch/merge-gate = ${state} on ${sha}: ${desc}"
+
+          # ── engine facts ──────────────────────────────────────────────────
+          # Recover what actually ran from the action's execution log. Every
+          # value starts at its configured/unknown default and is only
+          # overwritten when the file really carried it, so an absent, empty,
+          # truncated or unparseable file degrades instead of exploding. `?`
+          # means "the run did not report this"; `?/N` additionally shows the
+          # configured budget, because a turn BUDGET is not a turn COUNT and
+          # printing the budget as if it were the count would be a lie.
+          # Each fallible command is `|| true`-guarded and every test is a full
+          # `if`, because under `set -e` a bare `[ ... ] && x=y` that tests false
+          # returns 1 and would kill the step.
+          model="$CFG_MODEL"; effort="$CFG_EFFORT"
+          turns="?/${CFG_TURNS}"; ms='?'; cost='?'; is_err='?'
+
+          msgs=''
+          if [ -n "${EXECUTION_FILE:-}" ] && [ -s "${EXECUTION_FILE:-}" ]; then
+            # Tolerate BOTH documented shapes: the action writes an array of
+            # messages, but accept a bare result object too so a future/older
+            # writer does not silently blank the nameplate.
+            msgs=$(jq -c 'if type=="array" then . else [.] end' "$EXECUTION_FILE" 2>/dev/null || true)
+          fi
+          if [ -z "$msgs" ]; then msgs='[]'; fi
+          res=$(printf '%s' "$msgs" | jq -c '[.[] | objects | select(.type=="result")] | last // {}' 2>/dev/null || true)
+          if [ -z "$res" ]; then res='{}'; fi
+
+          # Prefer the model id the run itself reported (system/init and every
+          # assistant message carry it) over the configured one — that is the
+          # whole point: the answer to "which model reviewed this PR?" comes
+          # from the run, not from reading a variable in some checkout.
+          m=$(printf '%s' "$msgs" | jq -r '[.[] | objects | (.model?, .message?.model?) | strings] | last // ""' 2>/dev/null || true)
+          if [ -n "$m" ]; then model="$m"; fi
+
+          # `has($k)` rather than `// default`: jq's `//` treats `false` as
+          # absent, and `is_error: false` is exactly the value we must not lose.
+          fact() { printf '%s' "$res" | jq -r --arg k "$1" 'if has($k) then (.[$k] | tostring) else "" end' 2>/dev/null || true; }
+          v=$(fact num_turns);     if [ -n "$v" ]; then turns="$v"; fi
+          v=$(fact duration_ms);   if [ -n "$v" ]; then ms="$v"; fi
+          v=$(fact total_cost_usd); if [ -n "$v" ]; then cost="$v"; fi
+          v=$(fact is_error);      if [ -n "$v" ]; then is_err="$v"; fi
+
+          # Outcome class — one token, three values, in priority order:
+          #   error      the engine itself reported is_error (the incident's
+          #              fingerprint: a rejected model call the action still
+          #              exits "success" on).
+          #   ok         a valid verdict landed. DO-NOT-MERGE counts as ok — the
+          #              gate WORKED; `ok` describes the engine, not the verdict.
+          #   no-verdict the engine claims it was fine but wrote no parseable
+          #              verdict, i.e. the gate is silently absent on this PR.
+          if [ "$is_err" = "true" ]; then
+            cls=error
+          elif [ "$verdict_ok" = "1" ]; then
+            cls=ok
+          else
+            cls=no-verdict
+          fi
+          engine_line="model=${model} effort=${effort} turns=${turns} ms=${ms} ${cls}"
+          engine_line=$(printf '%s' "$engine_line" | cut -c1-140)
+
+          # ── latch/engine — a nameplate, never a gate ──────────────────────
+          # ALWAYS state=success, unconditionally, even when cls=error. This
+          # status exists to say what ran; it must never become a second red
+          # check in the merge box competing with latch/merge-gate. The failure
+          # signal is latch/merge-gate and the latch-alert issue below.
+          # Guarded: a failure here must not cost us the verdict already posted.
+          (
+            gh api -X POST "repos/${{ github.repository }}/statuses/${sha}" \
+              -f state=success \
+              -f context=latch/engine \
+              -f description="$engine_line" \
+              -f target_url="$run_url" >/dev/null || exit 1
+          ) || echo "latch: could not publish latch/engine (non-fatal) — the verdict above stands."
+          echo "latch/engine = ${engine_line}"
+          # Same line into the run summary so it is visible without opening logs.
+          # `:-/dev/null` because an unbound var under `set -u` is a fatal shell
+          # error that `|| true` cannot catch — this must never be the thing that
+          # reddens the job.
+          echo "latch/engine = ${engine_line} (cost_usd=${cost})" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+
+          # ── one guaranteed false positive, suppressed ─────────────────────
+          # claude-code-action refuses to run when the workflow file it is
+          # running from differs from the copy on the default branch ("Workflow
+          # validation failed... must have identical content"), so a PR that
+          # EDITS THIS FILE always produces no verdict. That is the action's own
+          # anti-tamper design — a PR must not be able to rewrite the reviewer
+          # that reviews it — not an engine failure. latch/merge-gate stays
+          # `error` and latch/engine stays honest, but alerting on it would cry
+          # wolf on every workflow PR until nobody reads the alert, which is the
+          # exact failure this alert exists to prevent. Observed on the PR that
+          # introduced this block. A `gh` failure here leaves self_edit=0, i.e.
+          # we alert — fail loud, not silent.
+          self_edit=0
+          if gh api --paginate "repos/${{ github.repository }}/pulls/${PR}/files" --jq '.[].filename' 2>/dev/null \
+               | grep -Fqx '.github/workflows/latch-review.yml'; then
+            self_edit=1
+            echo "latch: this PR edits the review workflow, which the action declines to run — suppressing latch-alert."
+          fi
+
+          # ── latch-alert — make a silent gate loud ─────────────────────────
+          # Fires on exactly the branches that set state=error above: the gate
+          # ran but produced no usable verdict. Deliberately NOT keyed off the
+          # action step's outcome (see the verdict_ok note above). Also guarded:
+          # alerting is the least important thing this step does.
+          #
+          # Dedupe by LISTING open issues with the label, not by searching —
+          # GitHub's search index is eventually consistent and a burst of failing
+          # PRs would open a duplicate issue each. `pull_request==null` filters
+          # out PRs, which this endpoint also returns.
+          if [ "$ALERT" != "off" ] && [ "$verdict_ok" != "1" ] && [ "$self_edit" != "1" ]; then
+            (
+              gh label create latch-alert --color B60205 \
+                --description "Latch: the merge gate produced no verdict" --force >/dev/null 2>&1 || true
+              open=$(gh api "repos/${{ github.repository }}/issues?labels=latch-alert&state=open" \
+                --jq '[.[] | select(.pull_request == null) | .number] | first // empty') || exit 1
+              body=$(printf '%s\n' \
+                "**The Latch gate produced no verdict.** The review ran but wrote nothing parseable to the verdict file, so \`latch/merge-gate\` was published as \`error\` and this PR is effectively ungated." \
+                "" \
+                "- run: ${run_url}" \
+                "- PR: #${PR}" \
+                "- engine: \`${engine_line}\`" \
+                "- fingerprint: \`is_error=${is_err} num_turns=${turns} duration_ms=${ms} total_cost_usd=${cost}\`" \
+                "" \
+                "**Remediation.** The observed cause is an exhausted model allowance: the first model call is rejected in well under a second, the error body is suppressed for security, and the action still exits \`success\` — so every run fails identically and invisibly. Check the \`CLAUDE_CODE_OAUTH_TOKEN\` subscription allowance (or \`ANTHROPIC_API_KEY\` billing) first; a \`num_turns\` of 1 with a sub-second \`duration_ms\` is that signature. Then fail over with \`gh variable set LATCH_MODEL <other-model>\`." \
+                "" \
+                "Latch reuses this issue for every further failure and closes it on the next run that does produce a verdict. Silence it with \`gh variable set LATCH_ALERT off\`.")
+              if [ -n "$open" ]; then
+                gh api -X POST "repos/${{ github.repository }}/issues/${open}/comments" -f body="$body" >/dev/null || exit 1
+                echo "latch-alert: commented on existing issue #${open}"
+              else
+                gh api -X POST "repos/${{ github.repository }}/issues" \
+                  -f title="Latch gate is not producing verdicts" \
+                  -f body="$body" \
+                  -f 'labels[]=latch-alert' >/dev/null || exit 1
+                echo "latch-alert: opened a new issue"
+              fi
+            ) || echo "latch: could not raise latch-alert (non-fatal) — the verdict above stands."
+          fi
+
+          # Recovery: a run that DID produce a verdict proves the engine works,
+          # so close any open alert. Repo-wide by design — the observed failure
+          # (allowance exhausted) is repo-wide, so one working review anywhere
+          # clears it. Same list call, same guard.
+          if [ "$ALERT" != "off" ] && [ "$verdict_ok" = "1" ]; then
+            (
+              open=$(gh api "repos/${{ github.repository }}/issues?labels=latch-alert&state=open" \
+                --jq '[.[] | select(.pull_request == null) | .number] | .[]' 2>/dev/null || true)
+              for n in $open; do
+                gh api -X POST "repos/${{ github.repository }}/issues/${n}/comments" \
+                  -f body="✅ **Recovered.** Latch produced a verdict again on PR #${PR} (\`${engine_line}\`). Closing. Run: ${run_url}" >/dev/null || exit 1
+                gh api -X PATCH "repos/${{ github.repository }}/issues/${n}" -f state=closed >/dev/null || exit 1
+                echo "latch-alert: closed issue #${n} (recovered)"
+              done
+            ) || echo "latch: could not close latch-alert (non-fatal) — the verdict above stands."
+          fi
 
   review-on-demand:
     # On-demand re-review: comment "@latch review" as a top-level PR comment or
@@ -322,6 +547,10 @@ jobs:
        (github.event_name == 'pull_request_review_comment' &&
         contains(github.event.comment.body, '@latch review')))
     runs-on: ubuntu-latest
+    # Same concern as the `review` job above: never let a wedged run sit on
+    # GitHub's 6-hour default. This path posts no verdict status, so it gets the
+    # cap and nothing else.
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
