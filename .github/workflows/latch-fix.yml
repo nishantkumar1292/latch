@@ -69,16 +69,27 @@ name: Latch Fix
 # work already on the branch (the same incident with the polarity inverted, at
 # the same cost).
 #
-# BURST EARLY-EXIT: a burst of review events queues N fixers (see the `fix`
-# job's concurrency block, LEVEL 2). The first one answers the threads; the
-# other N-1 have nothing left to do, yet each used to pay for a checkout and a
-# full agent spin-up before discovering it. The `fix` job's FIRST step therefore
-# re-asks the unresolved-thread question — after the queue released this run, so
-# the answer is current — and when nothing is PENDING it exits the job green in
-# seconds: no checkout, no agent, no PR comment, just a log line. Pending is
-# narrower than unresolved: a thread the fixer already pushed back on (bot
-# reply, deliberately left open for a human) is answered, not pending. See the
-# step's own comment for why that check lives there and not in the guard.
+# BURST EARLY-EXIT: the guard's "is there anything to fix?" answer can be stale
+# by the time a fix job actually runs — most cheaply when a previous fixer
+# already ANSWERED the threads and left them open on purpose, which the guard's
+# unresolved-only query still reads as work. So the `fix` job's FIRST step
+# re-asks a narrower question — is any thread still PENDING? — and when nothing
+# is, it exits the job green in seconds: no checkout, no agent, no PR comment,
+# just a log line. Pending is narrower than unresolved: a thread the fixer
+# already pushed back on (bot reply, deliberately left open for a human) is
+# answered, not pending. See the step's own comment for why that check lives
+# there and not in the guard.
+#
+# CONCURRENCY, STATED HONESTLY: the block below is at WORKFLOW level with
+# `cancel-in-progress: true`, so a newer review event on the same PR CANCELS an
+# in-flight fixer — including one that is mid-push. That is a known hazard, not
+# a design: the shape it wants is a burst filter on the `guard` (cancel) plus a
+# `cancel-in-progress: false` group on the `fix` job (queue, never cancel), so
+# bursts collapse without a running fixer ever being killed. Until that lands,
+# do not describe this loop as serialising fixers, and prefer a hand dispatch
+# over racing a burst. The precheck below is worth having either way, and its
+# value grows once fixers queue: a queued run is released only after the one
+# ahead of it answered the threads, which is exactly the case it exits on.
 #
 # NOTE: `pull_request_review` always uses the workflow file from the DEFAULT
 # branch, so this file only takes effect once merged to the default branch and
@@ -202,10 +213,13 @@ jobs:
     # turn costs roughly 10-13 seconds, plus a minute or two of job setup — so
     # 80 turns is comfortably more than this budget, and raising the turn cap
     # without raising this just moves the failure from a loud turn-cap error to
-    # a silent job cancellation. Reply-after-push adds a little job-side work at
-    # the END of the run (two API calls per thread, after the agent has already
+    # a job cancellation. Reply-after-push adds a little job-side work at the
+    # END of the run (two API calls per thread, after the agent has already
     # spent most of the budget), which is exactly when a cancellation is most
     # expensive: the fix is on the branch and the threads are half-answered.
+    # That is why the failure reporter at the end of this job fires on
+    # `cancelled()` as well as `failure()` — an expiring clock must not be the
+    # one failure the PR never hears about.
     timeout-minutes: 25
     permissions:
       contents: write # push the fix (with GITHUB_TOKEN — recursion-guarded)
@@ -230,11 +244,13 @@ jobs:
       MAX_CYCLES: ${{ vars.LATCH_MAX_FIX_CYCLES || '3' }}
     steps:
       # BURST EARLY-EXIT. Deliberately the FIRST step, ahead of the checkout and
-      # everything else: re-ask, now that the queue has released this run,
-      # whether any review thread is still PENDING. The guard's answer was
-      # computed when the burst arrived and, for every run but the first, is
-      # stale by minutes — a fixer ahead of us in the queue has since answered
-      # those threads.
+      # everything else: re-ask whether any review thread is still PENDING. The
+      # guard's answer is computed when the event arrives and can be stale by
+      # the time this job runs — most often because an EARLIER fixer already
+      # answered those threads and left them open on purpose, which the guard's
+      # unresolved-only query still counts as work to do. (Once the fix job
+      # carries its own queueing group, the same step covers the burst case too:
+      # a queued run is released only after the one ahead of it has answered.)
       #
       # DELIBERATE DIVERGENCE FROM THE GUARD'S QUERY — do not "sync" them back.
       # The two ask different questions:
@@ -1083,10 +1099,24 @@ jobs:
         # NAME rather than by the HANDLED marker, because that step exits
         # non-zero and a failing step's environment file is not something to bet
         # a duplicate comment on.
+        #
+        # `failure()` alone would leave a TIMEOUT silent: exceeding
+        # `timeout-minutes` CANCELS the job, and a cancellation satisfies
+        # neither success() nor failure(), so a fixer that ran out of wall clock
+        # would post nothing at all and the loop would stall with no signal to
+        # anyone. That gap is cheap to ignore only while all the work is the
+        # agent's — reply-after-push puts two API calls per thread at the very
+        # END of the run, after the agent has eaten most of the budget, which is
+        # exactly where the clock runs out and exactly where a silent stall
+        # costs the most: fix on the branch, threads half-answered, nothing
+        # said. So this PR closes it rather than deferring it. (Steps whose `if`
+        # uses cancelled() are re-evaluated and do run during cancellation —
+        # this one is a single fast `gh pr comment`.)
         if: >-
-          failure() && env.HANDLED != 'true' &&
+          (failure() || cancelled()) && env.HANDLED != 'true' &&
           steps.push.outputs.state != 'unverified'
         env:
+          JOB_STATUS: ${{ job.status }}
           PUSH_STATE: ${{ steps.push.outputs.state }}
           FIX_SHORT: ${{ steps.push.outputs.short }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -1099,7 +1129,13 @@ jobs:
           # pushed" there sends a human to re-derive work that already landed,
           # which is the phantom-fix cost with the polarity inverted.
           if [ "${PUSH_STATE:-}" = "pushed" ]; then
-            gh pr comment "$PR" --body "⚠️ **Latch fixer run errored after its push.** The fix commit \`${FIX_SHORT:-unknown}\` **is already on this branch**, and some review threads may already be answered and resolved — check the branch and the replies above before re-running, or the fix will be duplicated. The review was **not** re-dispatched and no fix cycle was consumed. See the run log for the step that failed: $RUN_URL. The loop pauses here for a human."
+            STOPPED="errored after its push"
+            [ "$JOB_STATUS" = "cancelled" ] && STOPPED="was cancelled after its push (most likely the job timeout; a hand-cancelled run looks identical)"
+            gh pr comment "$PR" --body "⚠️ **Latch fixer run ${STOPPED}.** The fix commit \`${FIX_SHORT:-unknown}\` **is already on this branch**, and some review threads may already be answered and resolved — check the branch and the replies above before re-running, or the fix will be duplicated. The review was **not** re-dispatched and no fix cycle was consumed. See the run log: $RUN_URL. The loop pauses here for a human."
+            exit 0
+          fi
+          if [ "$JOB_STATUS" = "cancelled" ]; then
+            gh pr comment "$PR" --body "⚠️ **Latch fixer run cancelled before it finished** — most likely it ran past the job timeout (\`timeout-minutes\`, 25 by default; raise it alongside \`LATCH_MAX_TURNS\`, since more turns need more wall clock). A hand-cancelled run looks identical from here, and so does a newer review event superseding this one. Nothing was pushed, no review thread was replied to or resolved, and the review was not re-dispatched. Run log: $RUN_URL. The loop pauses here for a human."
             exit 0
           fi
           # Name the ACTUAL cause. A push race is not a turn-cap problem, and

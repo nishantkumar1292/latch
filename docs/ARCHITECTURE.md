@@ -115,16 +115,19 @@ sequenceDiagram
    when the post-hoc check disagrees the fixer reads the run's own execution log,
    pushes the finished work if it completed, and says so loudly on the PR. Any run
    whose log does *not* show a successful result still fails.
-8. **A burst of review events costs one fixer, not N.** Inline comments from one review
-   arrive as several events. The guard collapses the ones that land inside its own
-   ~20-second window; the fix job then **queues** (never cancels — killing a fixer
-   mid-push is the failure that rule exists to prevent). Because a queued run is
-   released only after the one ahead of it has answered the threads, the fix job's
-   first step re-asks whether anything is still *pending* — unresolved, opened by the
-   reviewer, and **not** already answered by a fixer's own push-back — and exits green
-   in seconds when nothing is, before the checkout and before the agent. A human's
-   reply after a push-back makes the thread pending again, which is the right edge for
-   free.
+8. **A fixer run that has nothing to do stops before it costs anything.** The guard's
+   "is there work here?" answer can be stale by the time the fix job runs — most often
+   because an earlier fixer already *answered* those threads and left them open on
+   purpose, which the guard's unresolved-only query still counts as work. So the fix
+   job's first step re-asks a narrower question — is any thread still *pending*:
+   unresolved, opened by the reviewer, and **not** already answered by a fixer's own
+   push-back — and exits green in seconds when nothing is, before the checkout and
+   before the agent. A human's reply after a push-back makes the thread pending again,
+   which is the right edge for free. (Concurrency is a separate matter and currently a
+   blunt one: a single workflow-level group with `cancel-in-progress: true`, so a newer
+   review event cancels an in-flight fixer. Splitting it — a cancelling filter on the
+   guard, a queueing group on the fix job — is outstanding work; see
+   [OPERATIONS.md §6](./OPERATIONS.md#6-a-burst-of-review-events-and-what-it-does-to-an-in-flight-fixer).)
 9. **Push races are recovered, not misdiagnosed.** The fixer works on a checkout that
    can go stale under it: a human, another agent, or a base merge can push to the PR
    branch mid-run, and its own push is then rejected non-fast-forward. The job rebases

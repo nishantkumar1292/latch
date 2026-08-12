@@ -87,6 +87,25 @@ test('a run that dies after its push never claims nothing was pushed', () => {
   assert.match(report, /is already on this branch/);
 });
 
+test('an expiring clock is not the one failure the PR never hears about', () => {
+  // Exceeding timeout-minutes CANCELS the job, and a cancellation satisfies
+  // neither success() nor failure(). Reply-after-push puts job-side work at the
+  // very END of the run, right where the clock runs out — so a reporter on
+  // failure() alone would go silent exactly when the fix is on the branch and
+  // the threads are half-answered.
+  const cond = /- name: Report fixer failure\n[\s\S]*?if: >-\n([\s\S]*?)\n\s+env:/.exec(FIX);
+  assert.ok(cond, 'reporter condition found');
+  assert.match(cond[1], /failure\(\) \|\| cancelled\(\)/);
+  const report = extractRun(FIX, 'Report fixer failure');
+  assert.match(report, /JOB_STATUS" = "cancelled"/);
+  // ...and the cancelled branch must still lead with the push state, or it
+  // tells a human nothing was pushed while the fix sits on the branch.
+  const pushedBranch = report.indexOf('is already on this branch');
+  const cancelledOnly = report.indexOf('cancelled before it finished');
+  assert.ok(pushedBranch > 0 && cancelledOnly > pushedBranch,
+    'the push-state branch must be consulted before the cancellation branch');
+});
+
 test('the burst precheck asks a narrower question than the guard', () => {
   const precheck = extractRun(FIX, 'Re-check for pending review threads');
   // Unresolved is not the same as pending: a thread the fixer already pushed
