@@ -24,12 +24,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: CLI tests
-        # Shell-expanded glob (not a bare directory): `node --test <dir>` is
-        # broken on Node >= 21, which treats a positional path as a glob and a
-        # bare directory as a script. The expanded file list works on all Node
-        # >= 18 and discovers exactly the same tests.
-        run: node --test cli/test/*.test.js
+      - name: Tests
+        # `npm test` is the single entry point, so a new test directory is
+        # picked up here the moment package.json knows about it. The script
+        # itself passes shell-expanded globs (not a bare directory): `node
+        # --test <dir>` is broken on Node >= 21, which treats a positional path
+        # as a glob and a bare directory as a script. The expanded file list
+        # works on all Node >= 18 and discovers exactly the same tests.
+        run: npm test
 
       - name: Workflow templates are valid YAML
         # PyYAML is preinstalled on ubuntu-latest runners.
