@@ -52,6 +52,70 @@ test('no repo variable is interpolated raw into the templates', () => {
   }
 });
 
+// The stronger form of the rule above, and the one the new variables needed: a
+// repo variable must never appear inside a `run:` BODY. The line-shape filter in
+// the previous test allows an env assignment, which is the safe carrier; this
+// one proves nothing skipped the carrier and landed in a shell script, a jq
+// filter, or an awk program, where quoting is the only thing between a repo
+// setting and arbitrary execution.
+test('no repo variable reaches a shell script body', () => {
+  for (const [name, text] of [['latch-fix.yml', FIX], ['latch-review.yml', REVIEW]]) {
+    const lines = text.split('\n');
+    const offenders = [];
+    let indent = null; // set while inside a `run: |` block
+    for (const line of lines) {
+      if (indent !== null) {
+        if (line.trim() !== '' && line.search(/\S/) < indent) indent = null;
+        else {
+          if (/vars\./.test(line) && !line.trim().startsWith('#')) offenders.push(line.trim());
+          continue;
+        }
+      }
+      const m = /^(\s*)run: \|\s*$/.exec(line);
+      if (m) indent = m[1].length + 2;
+    }
+    assert.deepStrictEqual(offenders, [], `${name}: a repo variable reaches a run: body`);
+  }
+});
+
+// Each variable in the schema must be READ somewhere (a dead variable the
+// console offers is a lie about what the loop honours) and, if it is free text,
+// must be validated by a config step rather than used raw.
+test('every documented variable is actually consumed, and the free-text ones are validated', () => {
+  const both = FIX + REVIEW;
+  const consumed = [
+    // kill switch + numbers: read in job `if:`/expressions, not in a shell
+    ['LATCH_PAUSED', /vars\.LATCH_PAUSED != 'true'/],
+    ['LATCH_MAX_TURNS', /fromJSON\(vars\.LATCH_MAX_TURNS/],
+    ['LATCH_MAX_FIX_CYCLES', /fromJSON\(vars\.LATCH_MAX_FIX_CYCLES/],
+    ['LATCH_TIMEOUT_MINUTES', /fromJSON\(vars\.LATCH_TIMEOUT_MINUTES/],
+  ];
+  for (const [name, re] of consumed) {
+    assert.match(both, re, `${name} is documented but never read`);
+  }
+  // Free text: carried into a config step by env, then token-checked there.
+  for (const name of ['LATCH_PROVIDER', 'LATCH_MODEL', 'LATCH_FIX_MODEL', 'LATCH_EFFORT',
+    'LATCH_REVIEW_EFFORT', 'LATCH_VERDICT_STATUS', 'LATCH_VERDICT_CONTEXT',
+    'LATCH_REVIEW_LOGIN', 'LATCH_DOCTRINE']) {
+    assert.match(both, new RegExp(`^\\s+${name}: \\$\\{\\{ vars\\.${name} \\}\\}$`, 'm'),
+      `${name} is never carried into a config step by env`);
+    // Either the shared `reject` helper, or its own refusal with the same
+    // shape — LATCH_PROVIDER is an enum, so it names the two runnable values
+    // instead of describing a token.
+    assert.ok(new RegExp(`reject ${name} `).test(both) || new RegExp(`title=Invalid ${name}`).test(both),
+      `${name} is never validated`);
+  }
+  // Both templates document the whole schema, so an operator reading either one
+  // sees every knob rather than half of it.
+  for (const [name, text] of [['latch-fix.yml', FIX], ['latch-review.yml', REVIEW]]) {
+    for (const v of ['LATCH_PAUSED', 'LATCH_PROVIDER', 'LATCH_MODEL', 'LATCH_FIX_MODEL',
+      'LATCH_REVIEW_LOGIN', 'LATCH_DOCTRINE', 'LATCH_TIMEOUT_MINUTES']) {
+      assert.ok(text.includes(`# ${v}`) || text.includes(`# ${v} `) || new RegExp(`#.*${v}`).test(text),
+        `${name} does not document ${v}`);
+    }
+  }
+});
+
 test('the agent runs on validated model/effort values, never on vars directly', () => {
   for (const text of [FIX, REVIEW]) {
     assert.match(text, /--model \$\{\{ steps\.cfg\.outputs\.model \}\}/);
