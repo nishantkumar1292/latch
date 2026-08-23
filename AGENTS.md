@@ -137,6 +137,58 @@ These revise the founding decisions above where they conflict.
   fixers from an event burst exit green in seconds instead of paying for a checkout and
   an agent to discover the threads are already answered.
 
+### 2026-08-23 — configuration moves into the product
+
+- **Configuration lives in the target repo's Actions variables, not in the workflow
+  files.** Every tunable — the kill switch, the provider, models, efforts, the turn /
+  timeout / cycle caps, the verdict status and its context, the reviewer login, the
+  doctrine — is a repository variable the templates read **at runtime**, so a change
+  takes effect on the next run with no commit and no PR. The failure that forced it:
+  the production loop sat stuck on a reviewer credential that had hit a usage limit,
+  and there was no way to pause the loop or point it at another provider without
+  opening a PR against the workflow files while every gated PR waited. Configuration
+  only a commit can change is not configuration. Every variable stays optional and
+  validated — a fresh install that sets nothing must keep behaving exactly as before,
+  and that is a supported path, not a fallback.
+- **The UI for those variables is a static console — GitHub is the backend.**
+  `site/console/` is plain HTML/CSS/vanilla JS on the same Pages deploy as the landing
+  page, calling `api.github.com` direct from the browser. **Do not give it a backend.**
+  The repo's Actions variables are already the single source of truth and GitHub's
+  permissions are already the access control; a server of ours would add a second copy
+  of the truth, a credential to guard, and an outage mode, and it would quietly become
+  the hosted product (phase 2) without any of the things that make the hosted product
+  worth money. Sign-in is the OAuth device flow (public client id, no client secret
+  anywhere) with a fine-grained PAT as an always-available fallback; the token stays in
+  that browser's `localStorage`. Say plainly, wherever this is described, that sign-in
+  is **authentication UX, not server-side isolation** — there is no shared server state
+  to isolate. The one piece of hosted code is `hosted/oauth-proxy/`, a stateless CORS
+  pass-through for GitHub's two device-flow endpoints only; it must keep holding no
+  secret, no state, and no repo data.
+- **The engine is switchable: `LATCH_PROVIDER=claude|codex`.** This is the
+  model-independence knob taken as far as a different vendor, and both legs run for
+  real. It is not parity, and the difference must never be sold as parity: the Codex
+  action's sandbox has **no network access**, so the codex reviewer holds no pen (it
+  emits a structured verdict and a job step posts the review, with an explicit job for
+  the review→fix hop because a `GITHUB_TOKEN` review fires no `pull_request_review`
+  event), the fixer's threads are pre-fetched into a file, network-dependent policy
+  `checks:` cannot run and the fix is declared *unverified here*, and there is no
+  salvage rail (it reads `claude-code-action`'s own execution log). `LATCH_MAX_TURNS`
+  has no codex equivalent. `LATCH_REVIEW_LOGIN` exists because of all this — a
+  non-claude reviewer does not post as `claude[bot]`, and the fixer's thread queries
+  match nothing if it is not told who the reviewer is.
+- **The kill switch is honest, and the consequence is documented, not papered over.**
+  `LATCH_PAUSED=true` skips every job, so a paused Latch publishes **no** verdict
+  status — so a team that has marked `latch/merge-gate` a *required* check has its
+  merges blocked until it un-requires it. **Never post a passing status while paused.**
+  A gate that reports `MERGE` having reviewed nothing is exactly the lie this project
+  exists not to tell, and a required check is the one place that lie would be believed.
+- **Three owner-side steps are still outstanding**, and the device-flow sign-in is not
+  live until all three are done: register the GitHub OAuth App, deploy the CORS
+  pass-through worker, and paste the client id + worker URL into the console's config.
+  Until then the sign-in button shows a "not configured" state and the PAT path is the
+  way in — which is why the PAT path is a first-class fallback and must not be removed
+  once the device flow works.
+
 ---
 
 ## Current status
@@ -159,6 +211,17 @@ These revise the founding decisions above where they conflict.
       (`WAITLIST_URL`); flip `PAYMENT_LINK_URL` to turn that button into Buy.
 - [x] Rehearsal #1 complete — all loop mechanisms verified live on a throwaway PR;
       2 latent guard bugs found + fixed.
+- [x] Every tunable read from repo Actions variables at runtime (kill switch,
+      provider, models, efforts, caps, verdict status/context, reviewer login,
+      doctrine) — all optional, all validated; setting none is the supported path.
+- [x] `LATCH_PROVIDER=claude|codex` — both legs run on either engine, with the codex
+      sandbox's no-network cost documented (see the 2026-08-23 decision).
+- [x] Static console shipped at `latchgate.dev/console/` (`site/console/`): connect a
+      repo, produce the integration change, readiness check, `LATCH_*` config panel.
+- [x] CORS device-flow pass-through worker written (`hosted/oauth-proxy/`).
+- [ ] Console device-flow sign-in **live** — needs three owner steps: register the
+      GitHub OAuth App, deploy the worker, paste the client id + worker URL into the
+      console config. Until then, fine-grained PAT is the way in.
 - [ ] npm publish of `latch-gate`.
 - _Org transfer: deliberately deferred — owner decision (2026-07-18); staying on
   `nishantkumar1292/latch` unless traction demands an org._
@@ -188,6 +251,9 @@ Keep this checklist honest: a box is checked only when the thing exists and work
 | `docs/ROADMAP.md` | Phased checklist with current truth. | docs |
 | _(launch ops — moved out)_ | The demo storyboard, honesty armor, and launch copy (X/HN) now live in the **private** ops repo `github.com/nishantkumar1292/latch-ops` (`LAUNCH.md`), kept private pre-launch so pre-published scripts don't spoil the demo. | ops |
 | `INSTALL_FOR_AGENTS.md` | Machine-readable install protocol for a coding agent. | **engine builder** |
+| `site/index.html` | The landing page (GitHub Pages, custom domain `latchgate.dev`). | site |
+| `site/console/` | The static console — connect a repo, produce the integration change, readiness check, and the `LATCH_*` variable panel. No backend: it calls `api.github.com` from the browser. | console |
+| `hosted/oauth-proxy/` | Stateless CORS pass-through for GitHub's two device-flow endpoints, so the console's "Sign in with GitHub" works from a browser. Holds no secret, no state, no repo data. Deploy steps in its own `DEPLOY.md`. | console |
 | `workflows/latch-review.yml` | The reviewer half of the loop (generalized from the source deployment's review workflow). | **engine builder** |
 | `workflows/latch-fix.yml` | The fixer half (generalized from the source deployment's fix workflow). | **engine builder** |
 | `cli/bin/latch.js` | The `latch` CLI — `init` scaffolds the workflows + policy; runs the loop locally. | **engine builder** |
@@ -210,7 +276,10 @@ carrying the middle-tile bug.
   from its own PR. Confirm: review posts inline + a verdict status; fixer opens
   `latch-cycle:1`, commits under the fixer identity, resolves fixed threads, leaves a
   disagreed thread open with reasoning, and re-dispatches; the re-review returns clean.
-- **Site:** static (GitHub Pages). No build step assumed.
+- **Site and console:** static (GitHub Pages), no build step. Serve them locally with
+  `cd site && python3 -m http.server` and open `/console/`. The console has no backend
+  by design — it talks to `api.github.com` from the browser, so testing it needs only a
+  token, not an environment.
 
 ---
 
@@ -257,6 +326,15 @@ engine files (`workflows/`, `cli/`, `doctrines/`, `policy/`) if they exist yet.
 - **Never overclaim in demos.** Real repo, real PR, real SHAs, real timestamps,
   every hop a visible run, the fixer's disagreement shown in full, "it never merges —
   you do" stated out loud. Post-Devin, the honesty *is* the marketing.
+- **Never give the console a backend.** It is static, GitHub's Actions variables are
+  the config store, and GitHub's permissions are the access control. A server of ours
+  in that path duplicates the truth, adds a credential and an outage mode, and drifts
+  into being the hosted product (phase 2) without the inference, metering, and billing
+  that make the hosted product worth money. The device-flow proxy stays what it is:
+  stateless, secretless, two endpoints, no repo data.
+- **Never post a verdict status Latch has not earned.** While `LATCH_PAUSED=true`
+  nothing is reviewed, so nothing is posted — a required check will block merges, and
+  the fix is to un-require it, never to fake a passing `MERGE`.
 - **Never invent metrics or citations.** The market stats in the corpus need real
   citations before they go in front of anyone who diligences; do not assert them as
   fact without a source.

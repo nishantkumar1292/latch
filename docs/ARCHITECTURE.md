@@ -1,8 +1,10 @@
 # Architecture
 
 How the loop works mechanically. The v1 engine is two GitHub Actions workflows plus a
-CLI and a policy file, generalized from a production deployment. The hosted app (phase
-2) is sketched at the end as future work.
+CLI and a policy file, generalized from a production deployment. Every tunable lives in
+the target repo's Actions variables, which the workflows read at runtime; the static
+[console](#the-console-phase-15) is the UI for them. The hosted app (phase 2) is
+sketched at the end as future work.
 
 ## Identities
 
@@ -21,6 +23,24 @@ Why two identities: nothing can self-approve (GitHub blocks any identity from ap
 a PR it authored), and the loop stays **directional** — a review triggers a fix, a fix
 never triggers a fix.
 
+The fixer finds its work by asking which unresolved threads were *opened by the
+reviewer*, so it has to be told who that is: the `LATCH_REVIEW_LOGIN` variable
+(default `claude`) is that login. It exists because a non-claude reviewer does not post
+as `claude[bot]`. Set it to the identity the review actually posts under, or the
+fixer's thread queries match nothing and the loop looks broken while every job runs
+green.
+
+Under `LATCH_PROVIDER=codex` that is exactly what happens: codex has no GitHub App
+identity, so its review is posted with `GITHUB_TOKEN` and appears as
+`github-actions` — the same identity the fixer pushes under. The separation is then no
+longer by login, so it is carried two other ways: the review→fix hop becomes an
+**explicit dispatch** (a `GITHUB_TOKEN` review fires no `pull_request_review` event, by
+the same recursion guard the fix push relies on), and the fixer's replies carry a
+hidden marker so the loop can still tell its own answers from the reviewer's findings —
+which is what the pending-thread check reads. Set `LATCH_REVIEW_LOGIN=github-actions`
+when you switch. The two-identity separation is what makes the loop directional; on
+codex it is preserved by mechanism rather than by login.
+
 ## The verdict
 
 The reviewer ends with one summary verdict: **`MERGE` / `MERGE-WITH-FIXES` /
@@ -28,6 +48,13 @@ The reviewer ends with one summary verdict: **`MERGE` / `MERGE-WITH-FIXES` /
 mark that status required itself once it trusts the false-positive rate — Latch never
 imposes a hard gate by default (a required check driven by a probabilistic agent is a
 self-DoS; see [STRATEGY.md](./STRATEGY.md#the-three-corrections-adopted)).
+
+Two variables govern the status: `LATCH_VERDICT_CONTEXT` names it (default
+`latch/merge-gate`) and `LATCH_VERDICT_STATUS=off` computes the verdict but publishes
+no status at all, leaving it in the run summary. `LATCH_PAUSED=true` has the same
+visible effect for a different reason — every job no-ops, so nothing is reviewed and
+nothing is posted. Neither mode ever posts a passing status Latch has not earned, which
+is why a team that has marked the context *required* must un-require it before pausing.
 
 ## The sequence
 
@@ -69,6 +96,35 @@ sequenceDiagram
     Note over Rev,GH: clean re-review posts no findings →<br/>no event → loop ENDS, PR sits mergeable
     Dev->>GH: press Merge (the one human action)
 ```
+
+## The engine is switchable — claude or codex
+
+`LATCH_PROVIDER` picks which agent runs **both** halves: `claude` (the default,
+`anthropics/claude-code-action@v1`) or `codex` (`openai/codex-action@v1`). Both legs
+run for real on either provider. The shape differs, and it differs for one hard
+reason: **the Codex action's sandbox has no network access**, and the action does not
+let a workflow switch that on through its arguments.
+
+- **Review.** Codex cannot post as a GitHub App, so the codex reviewer **holds no
+  pen**: under an output schema it emits a structured JSON verdict plus findings and
+  posts nothing. A following job step posts one `COMMENT` review carrying the inline
+  comments, and the verdict commit status is published exactly as before. Because a
+  review posted with `GITHUB_TOKEN` fires no `pull_request_review` event, a separate
+  small job explicitly dispatches the fixer — so every hop is still its own auditable
+  Actions run, which is the property this loop is built on.
+- **Fix.** With no network the agent cannot query the review threads itself, so the job
+  **pre-fetches them into a file** the agent reads. The agent then judges each thread
+  exactly as before, edits the tree, and emits its reply plan as structured output; the
+  job commits, pushes, verifies ancestry, replays the replies and re-dispatches.
+  Everything after the agent is provider-agnostic and unchanged.
+
+**What codex costs, stated plainly.** No network means policy `checks:` commands that
+need it (`npm ci`, `cargo fetch`, …) cannot run, so the codex fixer declares the fix
+**unverified here** and the re-dispatched review plus the human merge are the backstop.
+There is no salvage rail for a codex run — that rail reads `claude-code-action`'s own
+execution log, which does not exist here. And `LATCH_MAX_TURNS` has no codex
+equivalent: the codex CLI exposes no turn cap, so the variable does nothing under
+`LATCH_PROVIDER=codex`.
 
 ## The guards, precisely
 
@@ -133,6 +189,25 @@ sequenceDiagram
    competing push touched the same lines, which is a human's call — so it stops and
    says so, naming the competing commit rather than blaming the turn cap.
 
+**Which of these survive a provider switch.** Seven of the nine are
+provider-agnostic, because they live in the job and not in the agent: anti-tamper (1),
+the cycle cap (2), the actionable check (3), termination (4), reply-after-push and its
+repair rail (6), the two-level concurrency and pending-thread early exit (8), and
+push-race recovery (9). Termination is the one worth a footnote: on codex there is no
+`pull_request_review` event to withhold, so a clean review ends the loop through the
+dispatch job and the fixer's own actionable check instead — a different mechanism for
+an identical property. Two guards genuinely degrade under `LATCH_PROVIDER=codex`, and
+neither degradation is silent:
+
+- **Checks before commit (5)** weakens where the check commands need the network. The
+  codex sandbox has none, so those commands cannot run; the fix is kept and its thread
+  reply declares the verification level honestly as *unverified here*, with the
+  re-dispatched review and the human merge as the backstop — the same posture already
+  used for toolchains the runner does not have.
+- **A finished run is never binned (7)** does not apply at all. The salvage rail reads
+  `claude-code-action`'s own execution log to rescue work a post-hoc turn-count check
+  would have discarded; there is no such log, and no such post-hoc check, on codex.
+
 ## The fixer's judgment (STEP 2)
 
 The fixer does **not** blindly comply. For each unresolved reviewer thread it reads the
@@ -170,6 +245,65 @@ real `pull_request` event payload for the target PR and points the action at it 
 dispatched re-review resolves the PR exactly like a native one. Concurrency is scoped
 per-PR **and per event type**, because the reviewer's own inline comments fire events
 that must not cancel the reviewer mid-post.
+
+## The console (phase 1.5)
+
+The console at <https://latchgate.dev/console/> (source in `site/console/`) is a static
+page — plain HTML/CSS/vanilla JS, no framework, no build step — served by the same
+GitHub Pages deploy as the landing page. It configures the loop; it never runs it.
+
+```
+   browser (latchgate.dev/console/)
+      │
+      │  every call direct, with the viewer's own token
+      ├──────────────────────────────▶ api.github.com
+      │                                  · repos / contents / pulls  (the install PR)
+      │                                  · actions/variables         (READ + WRITE)
+      │                                  · actions/secrets           (names only)
+      │                                  · actions/workflows + runs  (readiness)
+      │
+      └── device-flow login only ────▶ [CORS pass-through worker] ──▶ github.com
+                                        (hosted/oauth-proxy/)          /login/device/*
+                                        no secret, no state,
+                                        never sees repo data
+
+   Actions variables ARE the config store. The workflow templates read them at
+   runtime → a change takes effect on the NEXT run: no commit, no redeploy.
+```
+
+**Why there is no backend.** The thing a config UI must own is durable state, and
+GitHub already owns it: the target repo's Actions variables are the single source of
+truth, the workflows read them per run, and GitHub's own permissions are the access
+control. A server of ours in this path would add a second copy of the truth, a
+credential to guard, and an outage mode — for nothing. So the page holds no state
+beyond the viewer's token in that browser's `localStorage`, namespaced per
+authenticated login.
+
+**The device-flow proxy, precisely.** Sign-in uses the OAuth 2.0 device flow with a
+public client id and **no client secret anywhere**. GitHub's two device-flow endpoints
+do not serve CORS, so a browser cannot call them directly; `hosted/oauth-proxy/` is a
+minimal stateless worker that relays **only those two endpoints** (see its
+`DEPLOY.md`). It holds no secret and no state, and it never sees repo data — every
+`api.github.com` call still goes direct from the browser. A fine-grained PAT is an
+explicit, always-available way in, and until an owner registers the OAuth app and
+deploys the worker it is the *only* way in: the sign-in button shows a "not configured"
+state.
+
+Because the console is entirely client-side, signing in is **authentication UX, not
+server-side isolation**. There is no shared server state to isolate.
+
+**What the console cannot do**, and says so rather than guessing:
+
+- **Read secret values.** The GitHub API exposes secret *names* only. The readiness
+  check can confirm `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`, or
+  `OPENAI_API_KEY`) exists by name; whether the credential is valid or has capacity
+  left is only knowable from a real run — which is why a run that fails in under two
+  minutes is surfaced as a probable credential or usage-limit problem.
+- **Verify the reviewer App installation** without a token carrying the right scope.
+  That check is best-effort, and reports as unverified rather than as absent.
+- **Prove branch protection.** Whether `latch/merge-gate` is a required check lives in
+  rulesets the console does not read, so the pause-blocks-required-merges consequence
+  is documented, not detected.
 
 ## Hosted app sketch (phase 2 — future)
 

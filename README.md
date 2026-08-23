@@ -182,32 +182,67 @@ protocol.
 
 ## Configuration
 
-Latch is configured with a handful of workflow variables plus a per-repo policy file.
+Latch is configured with repository **variables** plus a per-repo policy file.
 
-**Workflow variables / secrets** (set in the scaffolded
-[`workflows/latch-review.yml`](./workflows/latch-review.yml) and
-[`workflows/latch-fix.yml`](./workflows/latch-fix.yml)):
+**Secrets** — the credential the agent runs on, picked by `LATCH_PROVIDER`:
 
 | Name | What it controls |
 |---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` (secret) | Your Claude subscription token — or `ANTHROPIC_API_KEY` for metered API auth. Set exactly one. Required. |
-| `LATCH_MODEL` | The reviewer's and fixer's model (default `claude-opus-4-8`). Independence knob — set a model *unlike* your author-agent. |
-| `LATCH_REVIEW_EFFORT` | The reviewer's reasoning effort (default `xhigh` — the doctrine pass is the differentiator). |
-| `LATCH_EFFORT` | The fixer's reasoning effort (default `high`). |
-| `LATCH_MAX_TURNS` | Agent turn budget per run (default `80`). |
-| `LATCH_MAX_FIX_CYCLES` | Max fixer cycles per PR before human escalation (default `3`). |
-| `LATCH_TIMEOUT_MINUTES` | Wall clock for the fixer job (default `25`). Raise it together with `LATCH_MAX_TURNS` — more turns need more minutes, or the job is cancelled mid-run instead of finishing. |
-| verdict status mode | `non-blocking` (default) or `required` — see below. |
+| `CLAUDE_CODE_OAUTH_TOKEN` (secret) | Your Claude subscription token — or `ANTHROPIC_API_KEY` for metered API auth. Set exactly one. Required for `LATCH_PROVIDER=claude` (the default). |
+| `OPENAI_API_KEY` (secret) | Required instead when `LATCH_PROVIDER=codex`. |
+
+**Repository variables** — repo → Settings → Secrets and variables → Actions →
+Variables. These are *not* workflow edits: the scaffolded
+[`workflows/latch-review.yml`](./workflows/latch-review.yml) and
+[`workflows/latch-fix.yml`](./workflows/latch-fix.yml) read them at runtime, so a
+change takes effect on the **next run**, with no commit and no PR. The
+[console](#console) sets them for you; `gh variable set NAME` does the same thing
+from a terminal.
+
+| Variable | Default when unset | What it controls |
+|---|---|---|
+| `LATCH_PAUSED` | not paused | The kill switch. Set it to `true` and every job in both workflows no-ops immediately. Read the consequence below before using it. |
+| `LATCH_PROVIDER` | `claude` | Which agent engine runs both halves: `claude` or `codex`. Any other value fails the run at config time. |
+| `LATCH_MODEL` | claude: `claude-opus-4-8`; codex: the provider's own default | The reviewer's model, and the fixer's unless `LATCH_FIX_MODEL` is set. Independence knob — set a model *unlike* your author-agent. |
+| `LATCH_FIX_MODEL` | falls back to `LATCH_MODEL` | The fixer's model, when it should differ from the reviewer's. |
+| `LATCH_REVIEW_EFFORT` | claude `xhigh`, codex `high` | The reviewer's reasoning effort — the doctrine pass is the differentiator. |
+| `LATCH_EFFORT` | `high` | The fixer's reasoning effort. |
+| `LATCH_MAX_TURNS` | `80` | Agent turn budget per run. **Claude engine only** — the codex CLI exposes no turn cap. |
+| `LATCH_TIMEOUT_MINUTES` | fixer job `25`; review job `360` | The job wall clock. `360` is GitHub's own job default, so leaving this unset leaves the review exactly as uncapped as it already was. Raise it together with `LATCH_MAX_TURNS` — more turns need more minutes, or the job is cancelled mid-run instead of finishing. |
+| `LATCH_MAX_FIX_CYCLES` | `3` | Max fixer cycles per PR before human escalation. |
+| `LATCH_VERDICT_STATUS` | on | Set to `off` to compute the verdict but publish no commit status. The verdict still goes to the run summary, so it is not lost. |
+| `LATCH_VERDICT_CONTEXT` | `latch/merge-gate` | The commit-status context name. Change it and branch protection must be updated to match, or a required check waits on a status nobody posts. |
+| `LATCH_REVIEW_LOGIN` | `claude` | The reviewer identity whose threads the fixer answers. It must match whoever actually posts the review — `claude` for provider `claude`, `github-actions` when a codex review posts under `GITHUB_TOKEN`. |
+| `LATCH_DOCTRINE` | built-in doctrine only | Also load `.latch/doctrines/<name>.md` on top of the built-in doctrine. |
 
 Every variable is optional: **a fresh install with none of them set runs on the
 defaults**, which is the supported path. When you do set one, Latch validates it
 before use — these values land inside the agent's own command line, so the
 numbers must be JSON-numeric (garbage fails the run at config time; `0` and
-negatives fall back to the default) and `LATCH_MODEL` / `LATCH_EFFORT` /
-`LATCH_REVIEW_EFFORT` must be a single `[A-Za-z0-9._-]` token that does not
-start with `-`. A value like `claude-opus-4-8 --dangerously-skip-permissions`
-is refused loudly rather than quietly splicing a second flag into the agent's
-arguments.
+negatives fall back to the default) and the free-text ones must be a single
+`[A-Za-z0-9._-]` token that does not start with `-`. A value like
+`claude-opus-4-8 --dangerously-skip-permissions` is refused loudly rather than
+quietly splicing a second flag into the agent's arguments.
+(`LATCH_VERDICT_CONTEXT` is the one exception that also allows `/`, and it is
+safe because it is never an argument — it is passed as a quoted API field.)
+
+**Pausing is honest, and honesty has a consequence.** While `LATCH_PAUSED=true`,
+Latch publishes **no** verdict commit status — not a passing one, not a neutral
+one, none. So if your team has marked `latch/merge-gate` a *required* check,
+pausing Latch blocks every merge until you un-require it. Un-require first, then
+pause. Latch deliberately does not post a `MERGE` status having reviewed nothing;
+a gate that lies is the thing this project exists not to build.
+
+**Switching the engine to codex** costs something, and the cost is stated plainly
+rather than buried: the Codex action's sandbox has **no network access**, so the
+codex reviewer holds no pen (it emits a structured verdict and a following job
+step posts the review under `GITHUB_TOKEN`, plus an explicit job to dispatch the
+fixer), policy `checks:` commands that need the network (`npm ci`, `cargo
+fetch`, …) cannot run in the codex fixer — which then declares the fix
+"unverified here" and leans on the re-dispatched review and the human merge —
+and there is no salvage rail for a codex run. Both halves of the loop do run for
+real; every guard after the agent is unchanged. Details in
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md#the-engine-is-switchable--claude-or-codex).
 
 **`.latch/policy.yml`** — your review doctrine and repo landmines as versioned,
 per-repo policy: the falsify-the-claims doctrine, the landmine list (e.g. "answer
@@ -217,6 +252,57 @@ posture. A starter policy ships at
 [`policy/examples/policy.yml`](./policy/examples/policy.yml); the review doctrine
 itself lives in [`doctrines/skeptical-senior-engineer.md`](./doctrines/skeptical-senior-engineer.md).
 Latch can also mine an existing `CLAUDE.md` / `AGENTS.md` for landmines.
+
+---
+
+## Console
+
+<https://latchgate.dev/console/> is a **static** page for setting all of the above
+without opening a PR against your workflow files. It does four things:
+
+1. **Connect a repo.**
+2. **Produce the integration change** — it opens the `latch/install` PR for you
+   through the GitHub API, or hands you copyable instructions to give your own
+   coding agent.
+3. **Check readiness** — the browser-side sibling of `latch doctor`: are both
+   workflows present and active, is `.latch/policy.yml` there, is the right
+   credential secret present *by name*, is the reviewer GitHub App installed
+   (best effort), are the `LATCH_*` variables present and valid, and is recent
+   run health sane — a run that fails in under two minutes is flagged as a
+   probable credential or usage-limit problem rather than a code problem.
+4. **Read and write the `LATCH_*` variables** in a grouped form — Reviewer,
+   Fixer, Loop guards, Kill switch — each value shown against its default.
+
+<!-- Screenshot placeholder: the console's readiness check + config panel. Not committed; attach it to the PR or host it, don't add a binary to the repo. -->
+
+**GitHub is the backend.** There is no Latch server and no backend of ours in
+this picture: the page calls `api.github.com` directly from your browser, and the
+source of truth for every tunable is your own repo's Actions variables — which
+is exactly why a change lands on the next run with no commit and no redeploy.
+Your token lives only in that browser's `localStorage`, namespaced per
+authenticated login, and we never see it or your code.
+
+Sign in with **"Sign in with GitHub"** — the OAuth 2.0 device flow, a public
+client id with no client secret anywhere — or with a **fine-grained PAT**, which
+is always available as an explicit fallback. Because GitHub's two device-flow
+endpoints do not serve CORS, the repo ships a minimal stateless pass-through
+worker at `hosted/oauth-proxy/` that relays only those two endpoints; it holds no
+secret and no state and never sees repo data, and every `api.github.com` call
+still goes direct from the browser. Until an owner registers the OAuth app and
+deploys that worker, the sign-in button shows a "not configured" state and the
+PAT path is the way in.
+
+One honesty note about that sign-in: because the console is entirely
+client-side, signing in is **authentication UX, not server-side isolation**.
+There is no shared server state to isolate — GitHub's own permissions are the
+access control.
+
+To run it locally:
+
+```bash
+cd site && python3 -m http.server 8000
+# then open http://localhost:8000/console/
+```
 
 ---
 
@@ -243,7 +329,10 @@ never an unsafe *merge*.
 
 - **It runs entirely in your Actions, on your key.** In the OSS self-hosted mode
   there is no Latch server in the loop: the reviewer and fixer run in your CI, on
-  your `CLAUDE_CODE_OAUTH_TOKEN`. **We never see your code.**
+  your own credential (`CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`, or
+  `OPENAI_API_KEY` on the codex provider). **We never see your code.** The
+  [console](#console) adds no server either — it is a static page that calls
+  `api.github.com` from your browser with your own token.
 - **Prompt-injection hardening.** The reviewer treats PR text as *claims to falsify*,
   not instructions to obey. Malicious PR content cannot steer the verdict into
   approving itself.
