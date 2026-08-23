@@ -190,6 +190,7 @@ Latch is configured with repository **variables** plus a per-repo policy file.
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` (secret) | Your Claude subscription token — or `ANTHROPIC_API_KEY` for metered API auth. Set exactly one. Required for `LATCH_PROVIDER=claude` (the default). |
 | `OPENAI_API_KEY` (secret) | Required instead when `LATCH_PROVIDER=codex`. |
+| `LATCH_REVIEW_TOKEN` (secret, optional) | Codex path only. Set it and the codex review posts under *that* token's identity, so its `pull_request_review` event fires naturally and the extra dispatch job stands down. Unset, the review posts as `github-actions[bot]` and the dispatch job carries the hop. Either way, `LATCH_REVIEW_LOGIN` must name whichever identity actually posts. |
 
 **Repository variables** — repo → Settings → Secrets and variables → Actions →
 Variables. These are *not* workflow edits: the scaffolded
@@ -235,8 +236,8 @@ a gate that lies is the thing this project exists not to build.
 
 **Switching the engine to codex** costs something, and the cost is stated plainly
 rather than buried: the Codex action's sandbox has **no network access**, so the
-codex reviewer holds no pen (it emits a structured verdict and a following job
-step posts the review under `GITHUB_TOKEN`, plus an explicit job to dispatch the
+codex reviewer holds no pen (it emits a structured verdict and a following step
+posts the review under `GITHUB_TOKEN`, plus an explicit job to dispatch the
 fixer), policy `checks:` commands that need the network (`npm ci`, `cargo
 fetch`, …) cannot run in the codex fixer — which then declares the fix
 "unverified here" and leans on the re-dispatched review and the human merge —

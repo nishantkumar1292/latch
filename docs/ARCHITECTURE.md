@@ -31,15 +31,22 @@ fixer's thread queries match nothing and the loop looks broken while every job r
 green.
 
 Under `LATCH_PROVIDER=codex` that is exactly what happens: codex has no GitHub App
-identity, so its review is posted with `GITHUB_TOKEN` and appears as
+identity, so by default its review is posted with `GITHUB_TOKEN` and appears as
 `github-actions` — the same identity the fixer pushes under. The separation is then no
 longer by login, so it is carried two other ways: the review→fix hop becomes an
 **explicit dispatch** (a `GITHUB_TOKEN` review fires no `pull_request_review` event, by
-the same recursion guard the fix push relies on), and the fixer's replies carry a
-hidden marker so the loop can still tell its own answers from the reviewer's findings —
-which is what the pending-thread check reads. Set `LATCH_REVIEW_LOGIN=github-actions`
-when you switch. The two-identity separation is what makes the loop directional; on
-codex it is preserved by mechanism rather than by login.
+the same recursion guard the fix push relies on), and the fixer's replies carry a hidden
+`<!-- latch:fixer -->` marker so the loop can still tell its own answers from the
+reviewer's findings — which is what the pending-thread check reads. Set
+`LATCH_REVIEW_LOGIN=github-actions` when you switch.
+
+If you would rather keep the separation by login on codex, set the optional
+`LATCH_REVIEW_TOKEN` **secret**: the review then posts under that token's own identity,
+its `pull_request_review` event fires naturally, and the dispatch job stands down
+(a natural event *and* a dispatch would run the fixer twice on one review). Point
+`LATCH_REVIEW_LOGIN` at that identity instead. Either way the two-identity separation
+is what makes the loop directional — on codex's default path it is preserved by
+mechanism rather than by login.
 
 ## The verdict
 
@@ -107,16 +114,19 @@ let a workflow switch that on through its arguments.
 
 - **Review.** Codex cannot post as a GitHub App, so the codex reviewer **holds no
   pen**: under an output schema it emits a structured JSON verdict plus findings and
-  posts nothing. A following job step posts one `COMMENT` review carrying the inline
-  comments, and the verdict commit status is published exactly as before. Because a
-  review posted with `GITHUB_TOKEN` fires no `pull_request_review` event, a separate
-  small job explicitly dispatches the fixer — so every hop is still its own auditable
-  Actions run, which is the property this loop is built on.
+  posts nothing — it writes its JSON to a file in the runner temp dir, which the CLI
+  process (outside the sandbox) can reach. A following step derives the same two-line
+  verdict file the publish step already read and posts one `COMMENT` review carrying
+  the inline comments, so the verdict commit status is published exactly as before.
+  Because a review posted with `GITHUB_TOKEN` fires no `pull_request_review` event, a
+  separate small job explicitly dispatches the fixer — so every hop is still its own
+  auditable Actions run, which is the property this loop is built on.
 - **Fix.** With no network the agent cannot query the review threads itself, so the job
   **pre-fetches them into a file** the agent reads. The agent then judges each thread
   exactly as before, edits the tree, and emits its reply plan as structured output; the
-  job commits, pushes, verifies ancestry, replays the replies and re-dispatches.
-  Everything after the agent is provider-agnostic and unchanged.
+  **job** commits, pushes, verifies ancestry, replays the replies and re-dispatches —
+  the codex agent does not commit. Everything after the agent is provider-agnostic and
+  unchanged.
 
 **What codex costs, stated plainly.** No network means policy `checks:` commands that
 need it (`npm ci`, `cargo fetch`, …) cannot run, so the codex fixer declares the fix

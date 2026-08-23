@@ -640,7 +640,7 @@
             id,
             'fail',
             file + ': latest run failed in ' + Math.round(seconds) + 's',
-            'A review that fails in under two minutes usually means the credential is rejected or over its usage limit — open the run log. You can switch LATCH_PROVIDER or pause the loop from the panel below.',
+            'A run that fails in under two minutes usually means the credential is rejected or over its usage limit — open the run log. You can switch LATCH_PROVIDER or pause the loop from the panel below.',
             { url: url }
           ));
         } else {

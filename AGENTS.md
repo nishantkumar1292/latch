@@ -170,12 +170,14 @@ These revise the founding decisions above where they conflict.
   action's sandbox has **no network access**, so the codex reviewer holds no pen (it
   emits a structured verdict and a job step posts the review, with an explicit job for
   the review→fix hop because a `GITHUB_TOKEN` review fires no `pull_request_review`
-  event), the fixer's threads are pre-fetched into a file, network-dependent policy
-  `checks:` cannot run and the fix is declared *unverified here*, and there is no
-  salvage rail (it reads `claude-code-action`'s own execution log). `LATCH_MAX_TURNS`
-  has no codex equivalent. `LATCH_REVIEW_LOGIN` exists because of all this — a
-  non-claude reviewer does not post as `claude[bot]`, and the fixer's thread queries
-  match nothing if it is not told who the reviewer is.
+  event), the fixer's threads are pre-fetched into a file and the **job**, not the
+  agent, commits, network-dependent policy `checks:` cannot run and the fix is declared
+  *unverified here*, and there is no salvage rail (it reads `claude-code-action`'s own
+  execution log). `LATCH_MAX_TURNS` has no codex equivalent. `LATCH_REVIEW_LOGIN` exists
+  because of all this — a non-claude reviewer does not post as `claude[bot]`, and the
+  fixer's thread queries match nothing if it is not told who the reviewer is; the
+  optional `LATCH_REVIEW_TOKEN` secret buys the codex review a login of its own, and
+  then the dispatch job must stand down or the fixer runs twice on one review.
 - **The kill switch is honest, and the consequence is documented, not papered over.**
   `LATCH_PAUSED=true` skips every job, so a paused Latch publishes **no** verdict
   status — so a team that has marked `latch/merge-gate` a *required* check has its
@@ -270,7 +272,8 @@ carrying the middle-tile bug.
 - **CLI:** `cli/bin/latch.js` is Node. Run its tests before shipping changes; `latch
   init` must idempotently scaffold `workflows/` + `.latch/policy.yml` into a target
   repo. (Owned by the engine builder.)
-- **Workflows:** validate the YAML (lint / `actionlint`) and rehearse a full loop on a
+- **Workflows:** run `npm test` (it pins the templates' real `jq`/shell filters, and
+  CI additionally parses both templates with PyYAML) and rehearse a full loop on a
   throwaway PR before trusting it — the `pull_request_review` trigger only takes
   effect once the fixer workflow is on the default branch, so it can't fully self-test
   from its own PR. Confirm: review posts inline + a verdict status; fixer opens

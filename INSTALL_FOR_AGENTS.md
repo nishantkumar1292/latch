@@ -136,7 +136,9 @@ gh variable set LATCH_PAUSED        # `true` pauses the whole loop
   blind spots. `LATCH_PROVIDER=codex` takes that as far as a different vendor —
   read the cost first (the codex sandbox has no network, so network-dependent
   `checks:` cannot run there, and `LATCH_REVIEW_LOGIN` must be set to
-  `github-actions` or the fixer will find no threads to answer). See
+  `github-actions` — unless the optional `LATCH_REVIEW_TOKEN` secret gives the
+  review an identity of its own — or the fixer will find no threads to
+  answer). See
   [ARCHITECTURE.md](./docs/ARCHITECTURE.md#the-engine-is-switchable--claude-or-codex).
 - **A variable change needs no commit.** The workflows read every `LATCH_*`
   variable at runtime, so a change made in the console (or with `gh variable
