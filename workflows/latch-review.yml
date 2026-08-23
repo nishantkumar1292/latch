@@ -794,8 +794,11 @@ jobs:
 
           verdict=$(jq -r '.verdict // empty' "$OUT")
           # Collapse to one line and cut at GitHub's own status-description cap,
-          # so what the summary promises is what the status can hold.
-          summary=$(jq -r '.summary // empty' "$OUT" | tr '\r\n' '  ' | cut -c1-140)
+          # so what the summary promises is what the status can hold. The trailing
+          # trim is not cosmetic: `tr` turns jq's own final newline into a space,
+          # and that space would ride into the commit status and into the verdict
+          # file the publish step parses line by line.
+          summary=$(jq -r '.summary // empty' "$OUT" | tr '\r\n' '  ' | cut -c1-140 | sed 's/[[:space:]]*$//')
           case "$verdict" in
             MERGE|MERGE-WITH-FIXES|DO-NOT-MERGE)
               # The SAME two-line file the claude path writes. The publish step
