@@ -113,12 +113,21 @@ test('the burst precheck asks a narrower question than the guard', () => {
   assert.match(precheck, /workflow_dispatch/);
   assert.match(precheck, /proceed=false/);
   assert.match(precheck, /GITHUB_STEP_SUMMARY/);
-  // It must be the FIRST step of the fix job — its whole point is exiting
-  // before the checkout and the agent.
+  // It must come before anything that COSTS anything — its whole point is
+  // exiting before the checkout and the agent. Config validation is allowed to
+  // precede it (one second of shell, and a configuration Latch cannot run
+  // should fail loudly whether or not this event had work in it); nothing else
+  // is. Asserted as a prefix rather than as "step 1" so the order of the cheap
+  // steps can change without pretending that is a regression.
   const fixJob = FIX.slice(FIX.indexOf('\n  fix:'));
-  const firstStep = /\n {4}steps:\n {6}(?:#[^\n]*\n {6})*- name: ([^\n]+)/.exec(fixJob);
-  assert.ok(firstStep, 'first step of the fix job found');
-  assert.strictEqual(firstStep[1].trim(), 'Re-check for pending review threads');
+  const names = [...fixJob.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1].trim());
+  const at = names.indexOf('Re-check for pending review threads');
+  assert.ok(at >= 0, 'the precheck step exists in the fix job');
+  assert.deepStrictEqual(names.slice(0, at), ['Validate Latch config'],
+    'only config validation may run before the burst early-exit');
+  for (const costly of ['Checkout repository', 'Fixer agent', 'Fixer agent (codex)']) {
+    assert.ok(names.indexOf(costly) > at, `${costly} must run after the precheck`);
+  }
 });
 
 test('this repo gates itself with the reply-after-push rails it ships', () => {
@@ -132,17 +141,35 @@ test('this repo gates itself with the reply-after-push rails it ships', () => {
 
 // ── The precheck's pending filter, exercised for real ────────────────────────
 
+// The pending decision is now two programs: a CONSTANT jq filter that projects
+// each thread to a TSV row, and an awk pass that compares the logins it was
+// handed through -v. Run both, exactly as the step does, so the assertions are
+// about behaviour and not about a string.
+function runPending(fixture, { reviewer = 'claude', fixer = 'github-actions' } = {}) {
+  const precheck = extractRun(FIX, 'Re-check for pending review threads');
+  const jqFilter = /--jq '([\s\S]*?)' \\\n\s*> "\$RUNNER_TEMP\/latch-pending\.tsv"/.exec(precheck);
+  assert.ok(jqFilter, 'pending jq filter found');
+  const awkProg = /-v fixer="\$FIXER_LOGIN" '([\s\S]*?)' "\$RUNNER_TEMP\/latch-pending\.tsv"/.exec(precheck);
+  assert.ok(awkProg, 'pending awk program found');
+
+  const jq = spawnSync('jq', ['-r', jqFilter[1]], { input: JSON.stringify(fixture), encoding: 'utf8' });
+  assert.strictEqual(jq.status, 0, jq.stderr);
+  const awk = spawnSync('awk', ['-F', '\t', '-v', `rev=${reviewer}`, '-v', `fixer=${fixer}`, awkProg[1]], {
+    input: jq.stdout,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(awk.status, 0, awk.stderr);
+  return (awk.stdout || '').split('\n').filter(Boolean);
+}
+
 test('pending counts unresolved reviewer threads the fixer has not answered', () => {
   if (jqMissing()) return; // jq absent locally — the runner always has it
-  const precheck = extractRun(FIX, 'Re-check for pending review threads');
-  const filter = /--jq '([\s\S]*?)'\s*\|\s*wc -l/.exec(precheck);
-  assert.ok(filter, 'pending jq filter found');
 
-  const thread = (id, isResolved, opener, latest) => ({
+  const thread = (id, isResolved, opener, latest, body = 'a reply') => ({
     id,
     isResolved,
     opener: { nodes: [{ author: { login: opener } }] },
-    latest: { nodes: [{ author: { login: latest } }] },
+    latest: { nodes: [{ author: { login: latest }, body }] },
   });
   const fixture = {
     data: { repository: { pullRequest: { reviewThreads: { nodes: [
@@ -165,12 +192,7 @@ test('pending counts unresolved reviewer threads the fixer has not answered', ()
       thread('T_suffixed', false, 'claude[bot]', 'github-actions[bot]'),
     ] } } } },
   };
-  const res = spawnSync('jq', ['-r', filter[1]], {
-    input: JSON.stringify(fixture),
-    encoding: 'utf8',
-  });
-  const ids = (res.stdout || '').split('\n').filter(Boolean);
-  assert.deepStrictEqual(ids, ['T_pending', 'T_reopened_by_human'], res.stderr);
+  assert.deepStrictEqual(runPending(fixture), ['T_pending', 'T_reopened_by_human']);
 });
 
 // ── The reply replay, exercised for real ─────────────────────────────────────
