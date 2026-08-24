@@ -941,7 +941,7 @@ test('remove takes out one key without touching the rest', () => {
 // `actions_variables`, not `variables`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('the permission matrix covers exactly what the console calls, and says why', () => {
+test('the permission matrix matches its expected snapshot, and each entry says why', () => {
   const names = core.TOKEN_PERMISSIONS.map((p) => p.name);
   assert.deepStrictEqual(names, [
     'Metadata',

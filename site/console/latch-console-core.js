@@ -899,7 +899,11 @@
     return encodeURIComponent(value).replace(/%20/g, '+');
   }
 
-  // The documented prefill form:
+  // The prefill form we build (believed-documented, not confirmed from this
+  // runner — GitHub's reference documents permission NAMES and LEVELS, but not
+  // this query-key prefill mechanism, so `target_name`, `expires_in`, and
+  // `actions_variables` as query keys are our best reading and want one eyeball
+  // on a live form before they are leaned on):
   //   /settings/personal-access-tokens/new?name=&description=&target_name=
   //     &expires_in=&<permission>=<read|write>
   // The user still picks the repository and presses Generate; nothing here can
