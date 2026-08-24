@@ -930,3 +930,113 @@ test('remove takes out one key without touching the rest', () => {
   assert.strictEqual(store.get('repo'), null);
   assert.strictEqual(store.get('provider'), 'codex');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1j. the token permission matrix and the prefilled deep links
+//
+// These pin values checked against GitHub's own reference. Two of them are the
+// kind of detail that is silently wrong when guessed, so they get their own
+// assertions: Workflows is a permission of its own (Contents:write does not
+// authorize a .github/workflows/ commit), and Variables' query key is
+// `actions_variables`, not `variables`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the permission matrix matches its expected snapshot, and each entry says why', () => {
+  const names = core.TOKEN_PERMISSIONS.map((p) => p.name);
+  assert.deepStrictEqual(names, [
+    'Metadata',
+    'Contents',
+    'Workflows',
+    'Pull requests',
+    'Variables',
+    'Secrets',
+    'Actions'
+  ]);
+
+  for (const permission of core.TOKEN_PERMISSIONS) {
+    assert.ok(permission.param, `${permission.name} needs a query-parameter key`);
+    assert.match(permission.param, /^[a-z_]+$/, `${permission.name} key shape`);
+    assert.ok(permission.level === 'read' || permission.level === 'write', `${permission.name} level`);
+    assert.ok(permission.why && permission.why.length > 30, `${permission.name} needs a real reason`);
+  }
+});
+
+test('the write permissions are exactly the four the console writes with', () => {
+  const writes = core.TOKEN_PERMISSIONS.filter((p) => p.level === 'write').map((p) => p.name);
+  assert.deepStrictEqual(writes, ['Contents', 'Workflows', 'Pull requests', 'Variables']);
+
+  // Secrets is READ, and never anything more: the console reads secret NAMES to
+  // check a credential exists and must never be able to read or set a value.
+  const secrets = core.TOKEN_PERMISSIONS.filter((p) => p.name === 'Secrets')[0];
+  assert.strictEqual(secrets.level, 'read');
+  assert.match(secrets.why, /[Nn]ames only/);
+});
+
+test('Workflows is its own permission, and the matrix explains why', () => {
+  const workflows = core.TOKEN_PERMISSIONS.filter((p) => p.name === 'Workflows')[0];
+  assert.strictEqual(workflows.param, 'workflows');
+  assert.strictEqual(workflows.level, 'write');
+  assert.match(workflows.why, /\.github\/workflows\//);
+  assert.match(workflows.why, /Contents write/);
+});
+
+test("Variables' query key is actions_variables, the one that breaks the naming rule", () => {
+  const variables = core.TOKEN_PERMISSIONS.filter((p) => p.name === 'Variables')[0];
+  assert.strictEqual(variables.param, 'actions_variables');
+  assert.strictEqual(variables.level, 'write');
+
+  // Every OTHER key is the display name lowercased with spaces underscored.
+  for (const permission of core.TOKEN_PERMISSIONS) {
+    if (permission.name === 'Variables') continue;
+    assert.strictEqual(
+      permission.param,
+      permission.name.toLowerCase().replace(/ /g, '_'),
+      `${permission.name} should follow the plain naming rule`
+    );
+  }
+});
+
+test('levelLabel reads as the words GitHub puts on the radio buttons', () => {
+  assert.strictEqual(core.levelLabel('write'), 'Read and write');
+  assert.strictEqual(core.levelLabel('read'), 'Read-only');
+});
+
+test('fineGrainedTokenUrl builds the documented prefill URL', () => {
+  const url = core.fineGrainedTokenUrl({ owner: 'octocat', expiresIn: 90 });
+  assert.ok(url.indexOf('https://github.com/settings/personal-access-tokens/new?') === 0, url);
+  assert.match(url, /[?&]name=Latch\+Console(&|$)/);
+  assert.match(url, /[?&]target_name=octocat(&|$)/);
+  assert.match(url, /[?&]expires_in=90(&|$)/);
+
+  // Every permission in the matrix reaches the URL at its own level.
+  for (const permission of core.TOKEN_PERMISSIONS) {
+    assert.match(url, new RegExp('[?&]' + permission.param + '=' + permission.level + '(&|$)'), permission.name);
+  }
+  assert.match(url, /[?&]actions_variables=write(&|$)/);
+  assert.match(url, /[?&]workflows=write(&|$)/);
+  assert.match(url, /[?&]secrets=read(&|$)/);
+  // Spaces as '+', matching GitHub's own example.
+  assert.doesNotMatch(url, /%20/);
+});
+
+test('fineGrainedTokenUrl omits what it does not know', () => {
+  const url = core.fineGrainedTokenUrl({});
+  assert.doesNotMatch(url, /target_name=/, 'no owner chosen yet');
+  assert.doesNotMatch(url, /expires_in=/);
+  assert.match(url, /name=Latch\+Console/);
+  assert.match(url, /contents=write/);
+
+  // Called with nothing at all it must still be a usable link.
+  const bare = core.fineGrainedTokenUrl();
+  assert.ok(bare.indexOf('https://github.com/settings/personal-access-tokens/new?') === 0);
+});
+
+test('classicTokenUrl asks for repo plus workflow, and nothing else', () => {
+  const url = core.classicTokenUrl();
+  assert.ok(url.indexOf('https://github.com/settings/tokens/new?') === 0, url);
+  assert.match(url, /description=Latch\+Console/);
+  assert.match(url, /scopes=repo,workflow/);
+  // `workflow` is not optional: a classic token cannot push a workflow file
+  // without it, exactly as the fine-grained Workflows permission is required.
+  assert.deepStrictEqual(core.CLASSIC_SCOPES, ['repo', 'workflow']);
+});

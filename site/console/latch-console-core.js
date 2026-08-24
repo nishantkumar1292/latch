@@ -816,6 +816,117 @@
     };
   }
 
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 1j. Getting a token — the permission matrix and the prefilled deep links
+  //
+  // The matrix is DERIVED from what latch-console.js actually calls, and every
+  // permission name below was checked against GitHub's own reference rather than
+  // inferred from the display name:
+  // docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens
+  //
+  // Two of these are easy to get wrong and are worth the comment:
+  //  * WORKFLOWS is a permission of its own. Contents:write alone does NOT let a
+  //    token commit a file under .github/workflows/ — GitHub's own guidance is
+  //    that an app which "specifically needs to access or edit Actions files in
+  //    the .github/workflows directory" must request the Workflows permission.
+  //    Miss it and the install PR fails on exactly the two files that matter.
+  //  * VARIABLES' query-parameter key is `actions_variables`, not `variables`.
+  //    Every other key here is the display name lowercased with spaces turned
+  //    into underscores; this one is not.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  var TOKEN_PERMISSIONS = [
+    {
+      name: 'Metadata',
+      param: 'metadata',
+      level: 'read',
+      why: 'Mandatory on every fine-grained token. The console reads the repo to learn its default branch.'
+    },
+    {
+      name: 'Contents',
+      param: 'contents',
+      level: 'write',
+      why: 'Read to see whether the workflows and .latch/policy.yml are installed; write to create the latch/install branch and commit the three files.'
+    },
+    {
+      name: 'Workflows',
+      param: 'workflows',
+      level: 'write',
+      why: 'GitHub gates files under .github/workflows/ behind this permission specifically. Without it the install PR fails on the two workflow files even with Contents write.'
+    },
+    {
+      name: 'Pull requests',
+      param: 'pull_requests',
+      level: 'write',
+      why: 'Open the install PR, and find the existing one instead of dead-ending if the branch is already there.'
+    },
+    {
+      name: 'Variables',
+      param: 'actions_variables',
+      level: 'write',
+      why: 'The whole config panel: read the loop\'s tunables, save a change, delete one to fall back to the default.'
+    },
+    {
+      name: 'Secrets',
+      param: 'secrets',
+      level: 'read',
+      why: 'Readiness checks that a provider credential EXISTS. Names only — this endpoint returns no secret values, and the console never asks for one.'
+    },
+    {
+      name: 'Actions',
+      param: 'actions',
+      level: 'read',
+      why: 'Readiness reads the workflow list (to catch a disabled workflow) and recent run health.'
+    }
+  ];
+
+  // Classic tokens have no per-permission dial: `repo` covers contents, pull
+  // requests, variables and secret metadata, and `workflow` is the separate
+  // scope that lets a token push workflow files — the same split as the
+  // fine-grained Contents/Workflows pair.
+  var CLASSIC_SCOPES = ['repo', 'workflow'];
+  var TOKEN_NAME = 'Latch Console';
+  var FINE_GRAINED_NEW_URL = 'https://github.com/settings/personal-access-tokens/new';
+  var CLASSIC_NEW_URL = 'https://github.com/settings/tokens/new';
+
+  function levelLabel(level) {
+    return level === 'write' ? 'Read and write' : 'Read-only';
+  }
+
+  function encodeParam(value) {
+    // GitHub's own example writes spaces as '+', so match it.
+    return encodeURIComponent(value).replace(/%20/g, '+');
+  }
+
+  // The prefill form we build (believed-documented, not confirmed from this
+  // runner — GitHub's reference documents permission NAMES and LEVELS, but not
+  // this query-key prefill mechanism, so `target_name`, `expires_in`, and
+  // `actions_variables` as query keys are our best reading and want one eyeball
+  // on a live form before they are leaned on):
+  //   /settings/personal-access-tokens/new?name=&description=&target_name=
+  //     &expires_in=&<permission>=<read|write>
+  // The user still picks the repository and presses Generate; nothing here can
+  // mint a token on anyone's behalf.
+  function fineGrainedTokenUrl(options) {
+    var opts = options || {};
+    var params = ['name=' + encodeParam(opts.name || TOKEN_NAME)];
+    params.push('description=' + encodeParam(opts.description || 'Configure the Latch review/fix loop from the Latch console.'));
+    if (opts.owner) params.push('target_name=' + encodeParam(opts.owner));
+    if (opts.expiresIn) params.push('expires_in=' + encodeParam(String(opts.expiresIn)));
+    TOKEN_PERMISSIONS.forEach(function (permission) {
+      params.push(permission.param + '=' + permission.level);
+    });
+    return FINE_GRAINED_NEW_URL + '?' + params.join('&');
+  }
+
+  function classicTokenUrl(options) {
+    var opts = options || {};
+    return CLASSIC_NEW_URL +
+      '?description=' + encodeParam(opts.name || TOKEN_NAME) +
+      '&scopes=' + CLASSIC_SCOPES.join(',');
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // 1g. owner/repo parsing
   // ───────────────────────────────────────────────────────────────────────────
@@ -1074,6 +1185,12 @@
     nonDefaultVars: nonDefaultVars,
     installPlan: installPlan,
     templateUrl: templateUrl,
+    TOKEN_PERMISSIONS: TOKEN_PERMISSIONS,
+    CLASSIC_SCOPES: CLASSIC_SCOPES,
+    TOKEN_NAME: TOKEN_NAME,
+    levelLabel: levelLabel,
+    fineGrainedTokenUrl: fineGrainedTokenUrl,
+    classicTokenUrl: classicTokenUrl,
     parseRepoInput: parseRepoInput,
     // device flow
     DEVICE_SCOPE: DEVICE_SCOPE,

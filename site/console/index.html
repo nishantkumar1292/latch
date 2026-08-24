@@ -163,10 +163,23 @@ input[type="text"],input[type="password"],select{
 input:focus-visible,select:focus-visible{border-color:var(--brand)}
 input[aria-invalid="true"]{border-color:var(--review)}
 .field-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
-.perm-list{display:grid;gap:6px;margin-top:4px}
-.perm-list li{padding-left:16px;position:relative;color:var(--ink-2);font-size:.8rem;line-height:1.45}
-.perm-list li::before{content:"·";position:absolute;left:4px;color:var(--brand);font-weight:900}
-.perm-list code{font-family:var(--mono);font-size:.94em}
+
+/* Getting a token: a numbered walkthrough + the permission matrix, both inside
+   a disclosure so the happy path stays uncluttered. */
+.details-body code{font-family:var(--mono);font-size:.9em;padding:1px 5px;border:1px solid var(--line);border-radius:5px;background:var(--surface-2)}
+.details-body details{background:var(--surface)}
+.details-body .eyebrow{margin-top:4px}
+.walkthrough{display:grid;gap:9px;counter-reset:tw}
+.walkthrough li{position:relative;padding-left:30px;color:var(--ink-2);font-size:.84rem;line-height:1.55;counter-increment:tw}
+.walkthrough li::before{content:counter(tw);position:absolute;left:0;top:2px;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:var(--surface-2);color:var(--ink);font-family:var(--mono);font-size:.64rem;font-weight:800}
+.walkthrough a{color:var(--brand);text-decoration:underline;overflow-wrap:anywhere}
+.perm-matrix{display:grid;gap:1px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--line)}
+.perm-matrix li{display:grid;grid-template-columns:minmax(140px,180px) minmax(0,1fr);gap:12px;padding:10px 12px;background:var(--surface)}
+.perm-matrix .pm-name{font-family:var(--mono);font-size:.74rem;font-weight:800;overflow-wrap:anywhere}
+.perm-matrix .pm-name em{display:block;margin-top:3px;font-style:normal;font-size:.64rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--brand)}
+.perm-matrix li[data-level="read"] .pm-name em{color:var(--muted)}
+.perm-matrix .pm-why{min-width:0;color:var(--ink-2);font-size:.8rem;line-height:1.45}
+@media (max-width:560px){.perm-matrix li{grid-template-columns:1fr;gap:5px}}
 details{border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--surface-2) 40%,var(--surface))}
 details>summary{padding:12px 14px;cursor:pointer;list-style:none;font-family:var(--mono);font-size:.78rem;font-weight:700}
 details>summary::-webkit-details-marker{display:none}
@@ -341,14 +354,38 @@ details[open]>summary::after{content:"−";color:var(--brand)}
           <details id="patDetails">
             <summary>Use a fine-grained token instead</summary>
             <div class="details-body">
-              <p class="note">Create a fine-grained personal access token scoped to the one repository you want to configure, then paste it here. Give it exactly these repository permissions:</p>
-              <ul class="perm-list">
-                <li><code>Contents</code> — read and write <span class="note-muted">(commit the workflow files for the install PR)</span></li>
-                <li><code>Pull requests</code> — read and write <span class="note-muted">(open the install PR)</span></li>
-                <li><code>Actions Variables</code> — read and write <span class="note-muted">(the loop's tunables)</span></li>
-                <li><code>Secrets</code> — read <span class="note-muted">(metadata only: this page reads secret NAMES, never values)</span></li>
-                <li><code>Metadata</code> — read <span class="note-muted">(mandatory for any fine-grained token)</span></li>
-              </ul>
+              <p class="note">Paste a personal access token scoped to the one repository you want to configure. It goes to api.github.com and nowhere else.</p>
+
+              <details id="tokenHelp">
+                <summary>How do I get a token?</summary>
+                <div class="details-body">
+
+                  <p class="eyebrow">Fine-grained · recommended</p>
+                  <ol class="walkthrough">
+                    <li>Open <a id="fineGrainedInline" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a>. The button below is meant to open it with the name and every permission in the table filled in (and the owner too, once you pick a repo below) — double-check them on the form before you generate.</li>
+                    <li>Name it <code>Latch Console</code> and pick an <strong>Expiration</strong>. When it expires the console simply asks for a new one.</li>
+                    <li>Set <strong>Resource owner</strong> to the account or organization that owns the repository.</li>
+                    <li>Under <strong>Repository access</strong> choose <code>Only select repositories</code> and pick the single repo you are configuring.</li>
+                    <li>Under <strong>Repository permissions</strong> set exactly these. Trim any you would rather not grant — the console will tell you which check stopped working instead of failing silently.</li>
+                  </ol>
+
+                  <ul class="perm-matrix" id="permMatrix" aria-label="Repository permissions the console needs"></ul>
+
+                  <div class="actions">
+                    <a class="btn btn-primary" id="fineGrainedLink" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Create fine-grained token ↗</a>
+                  </div>
+                  <p class="note-muted" id="fineGrainedOwnerNote"></p>
+                  <p class="note-muted">One honest gap on this path: a fine-grained token cannot list your GitHub App installations, so the readiness check's <code>reviewer-app</code> row reads “could not check” and points you at github.com/apps/claude to confirm by eye. Every other check works.</p>
+
+                  <p class="eyebrow">Classic · fastest</p>
+                  <p class="note">Two scopes: <code>repo</code> and <code>workflow</code>. The second one is not optional — a classic token cannot push a file under <code>.github/workflows/</code> without it, the same split as the fine-grained Contents/Workflows pair.</p>
+                  <div class="actions">
+                    <a class="btn" id="classicLink" href="https://github.com/settings/tokens/new" target="_blank" rel="noopener noreferrer">Create classic token ↗</a>
+                  </div>
+                  <p class="note-muted">Confirm <code>repo</code> and <code>workflow</code> are ticked before you generate: treat the preselection as a convenience to check rather than a guarantee, the same as the fine-grained link above. The tradeoff is the reason fine-grained is listed first — a classic token reaches <strong>every</strong> repository your account can reach, while a fine-grained one is confined to the repositories you picked.</p>
+
+                </div>
+              </details>
               <div class="row">
                 <label for="patInput">Fine-grained token</label>
                 <div class="field-row">
