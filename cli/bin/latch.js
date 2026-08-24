@@ -26,6 +26,26 @@ const TEMPLATE_WORKFLOWS = {
   'latch-fix.yml': path.join(PKG_ROOT, 'workflows', 'latch-fix.yml'),
 };
 const APP_INSTALL_URL = 'https://github.com/apps/claude';
+// Where a human sets the repo variables the workflows read. Latch never writes
+// them from here: they are repo settings, and this CLI holds no token.
+const CONSOLE_URL = 'https://latchgate.dev/console/';
+
+// Which repository secret each provider needs. Names only — `latch doctor`
+// checks for PRESENCE via `gh secret list` and never reads a value, because
+// there is no version of "help you debug your token" that is worth a CLI
+// touching one.
+const PROVIDER_SECRETS = {
+  claude: ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
+  codex: ['OPENAI_API_KEY'],
+};
+// Rough model-family fingerprints, used ONLY to warn about an obvious
+// provider/model mismatch. Deliberately not a list of valid models: model names
+// churn faster than this CLI ships, and a doctor that fails an unknown-but-valid
+// model would be worse than one that says nothing.
+const MODEL_FAMILY = [
+  [/^claude[-.]/i, 'claude'],
+  [/^(gpt|o[0-9]|codex)[-.]?/i, 'codex'],
+];
 
 // ── tiny ANSI (only when attached to a TTY) ────────────────────────────────
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -80,6 +100,22 @@ function tryGit(args, cwd) {
 function tryGh(args) {
   try {
     return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+// Read one Actions VARIABLE, best effort. Variables are repo settings, not
+// files, so there is nothing local to inspect: without `gh` (or without auth,
+// or on a repo the token cannot see) this returns null and every caller must
+// treat that as "unknown", never as "unset". Getting that wrong would have
+// doctor confidently check the wrong provider's credential.
+function repoVariable(name) {
+  const out = tryGh(['variable', 'list', '--json', 'name,value']);
+  if (out === null) return null;
+  try {
+    const row = JSON.parse(out).find((v) => v.name === name);
+    return row ? String(row.value) : '';
   } catch {
     return null;
   }
@@ -487,11 +523,18 @@ function cmdInit(flags) {
   }
   process.stdout.write('     ' + c.dim(`Latch prints these commands but never reads or stores the ${secretName} value.`) + '\n\n');
 
-  process.stdout.write(c.bold('  3. Commit the files') + ':\n');
+  process.stdout.write(c.bold('  3. Tune it later without a commit') + ' (optional — the defaults are the product):\n');
+  process.stdout.write('     Every knob is an Actions ' + c.bold('variable') + ', so a change takes effect on the next\n');
+  process.stdout.write('     run with no PR: pause the loop (LATCH_PAUSED), switch the reviewer to\n');
+  process.stdout.write('     OpenAI Codex (LATCH_PROVIDER=codex, plus an OPENAI_API_KEY secret), change\n');
+  process.stdout.write('     the model, the verdict status name, or the cycle cap.\n');
+  process.stdout.write('       ' + c.cyan(CONSOLE_URL) + '\n\n');
+
+  process.stdout.write(c.bold('  4. Commit the files') + ':\n');
   process.stdout.write('       ' + c.cyan('git add .github/workflows/latch-review.yml .github/workflows/latch-fix.yml .latch/policy.yml') + '\n');
   process.stdout.write('       ' + c.cyan('git commit -m "add latch merge gate"') + '\n\n');
 
-  process.stdout.write(c.bold('  4. Open a PR and watch the loop') + ':\n');
+  process.stdout.write(c.bold('  5. Open a PR and watch the loop') + ':\n');
   process.stdout.write('     Latch reviews it, the fixer converges it, and it stops — a human merges.\n');
   process.stdout.write('     Note: latch-fix.yml only takes effect once it is on your DEFAULT branch\n');
   process.stdout.write('     (GitHub runs pull_request_review workflows from the default branch).\n\n');
@@ -563,41 +606,116 @@ function cmdDoctor() {
     }
   }
 
-  // 4) secret set (best-effort via gh)
+  // 4) which provider is configured, and therefore which credential to check.
+  // The variable lives in repo settings, so `gh` is the only way to see it.
+  // When we cannot read it we say `claude (assumed)` rather than `claude`: the
+  // difference matters, because a codex install would otherwise be told to set
+  // an Anthropic token it does not need and never told about the one it does.
   const ghVersion = tryGh(['--version']);
+  const providerRaw = ghVersion ? repoVariable('LATCH_PROVIDER') : null;
+  const providerKnown = providerRaw !== null;
+  const provider = (providerRaw || 'claude').trim() || 'claude';
+  const providerValid = Object.prototype.hasOwnProperty.call(PROVIDER_SECRETS, provider);
+  if (!providerValid) {
+    // The workflows fail the run outright on this, loudly, at config time. Say
+    // so here rather than quietly checking the claude credential and reporting
+    // a healthy install that cannot start.
+    rows.push({
+      state: 'fail',
+      label: `LATCH_PROVIDER is "${provider}" — not a provider Latch can run`,
+      fix: `set it to claude or codex (or unset it): gh variable set LATCH_PROVIDER --body claude   —   ${CONSOLE_URL}`,
+    });
+    failures++;
+  } else {
+    rows.push({
+      state: 'pass',
+      label: `provider: ${provider}${providerKnown ? '' : ' (assumed — could not read LATCH_PROVIDER)'}`,
+      fix: null,
+    });
+  }
+  const wanted = PROVIDER_SECRETS[providerValid ? provider : 'claude'];
+
+  // 5) the credential for THAT provider (names only — never a value)
   if (!ghVersion) {
     rows.push({
       state: 'warn',
-      label: 'auth secret set (cannot verify — gh not installed)',
-      fix: 'install gh, or ensure CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY is set as a repo secret',
+      label: `auth secret set (cannot verify — gh not installed; assuming provider ${provider})`,
+      fix: `install gh, or ensure ${wanted.join(' or ')} is set as a repo secret`,
     });
   } else {
     const list = tryGh(['secret', 'list']);
     if (list === null) {
       rows.push({
         state: 'warn',
-        label: 'auth secret set (cannot verify — gh not authenticated)',
-        fix: 'run `gh auth login`, then check for CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY',
+        label: `auth secret set (cannot verify — gh not authenticated; assuming provider ${provider})`,
+        fix: `run \`gh auth login\`, then check for ${wanted.join(' or ')}`,
       });
-    } else if (/\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(list) || /\bANTHROPIC_API_KEY\b/.test(list)) {
-      const which = /\bCLAUDE_CODE_OAUTH_TOKEN\b/.test(list) ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY';
-      rows.push({ state: 'pass', label: `auth secret set (${which})`, fix: null });
     } else {
-      rows.push({
-        state: 'fail',
-        label: 'auth secret set',
-        fix: 'gh secret set CLAUDE_CODE_OAUTH_TOKEN --app actions   (or ANTHROPIC_API_KEY)',
-      });
-      failures++;
+      const found = wanted.find((n) => new RegExp(`\\b${n}\\b`).test(list));
+      if (found) {
+        rows.push({ state: 'pass', label: `auth secret set (${found}, for provider ${provider})`, fix: null });
+      } else {
+        rows.push({
+          state: 'fail',
+          label: `auth secret set for provider ${provider}`,
+          fix: `gh secret set ${wanted[0]} --app actions${wanted[1] ? `   (or ${wanted[1]})` : ''}`,
+        });
+        failures++;
+      }
     }
   }
 
-  // 5) Claude GitHub App reminder (cannot verify from here)
-  rows.push({
-    state: 'warn',
-    label: 'Claude GitHub App installed (cannot verify — required for claude[bot])',
-    fix: `${APP_INSTALL_URL}  (or: claude /install-github-app)`,
-  });
+  // 6) provider/model coherence. A cheap string check on a value we already
+  // have, and it catches the mistake that is otherwise invisible until a run
+  // fails: switching LATCH_PROVIDER and leaving the other vendor's model name
+  // behind. Only an obvious family mismatch warns — an unrecognised model is
+  // left alone, because model names churn faster than this CLI ships and a
+  // doctor that fails a valid-but-new model is worse than one that says nothing.
+  if (ghVersion && providerValid) {
+    for (const varName of ['LATCH_MODEL', 'LATCH_FIX_MODEL']) {
+      const model = repoVariable(varName);
+      if (!model) continue;
+      const family = (MODEL_FAMILY.find(([re]) => re.test(model)) || [])[1];
+      if (family && family !== provider) {
+        rows.push({
+          state: 'warn',
+          label: `${varName}="${model}" looks like a ${family} model, but LATCH_PROVIDER is ${provider}`,
+          fix: `set ${varName} to a ${provider} model, or unset it to use the provider default   —   ${CONSOLE_URL}`,
+        });
+      }
+    }
+  }
+
+  // 7) PAUSED. A paused loop is the one state where every other row can be
+  // green and nothing will ever run — so it gets its own line rather than
+  // letting "Latch looks installed" stand unqualified.
+  const paused = ghVersion ? repoVariable('LATCH_PAUSED') : null;
+  if (paused !== null && paused.trim().toLowerCase() === 'true') {
+    rows.push({
+      state: 'warn',
+      label: 'LATCH_PAUSED=true — the loop is PAUSED: no review, no fix, and NO verdict status',
+      fix: `unpause with \`gh variable set LATCH_PAUSED --body false\` (or delete it)   —   ${CONSOLE_URL}`,
+    });
+  }
+
+  // 8) Claude GitHub App reminder (cannot verify from here). Required only for
+  // provider=claude: it is what makes the review post as claude[bot], which is
+  // what fires the event that starts the fixer. Under codex the review posts
+  // with GITHUB_TOKEN and the review workflow's dispatch job carries that hop
+  // instead, so the App is not part of the picture.
+  if (!providerValid || provider === 'claude') {
+    rows.push({
+      state: 'warn',
+      label: 'Claude GitHub App installed (cannot verify — required for claude[bot])',
+      fix: `${APP_INSTALL_URL}  (or: claude /install-github-app)`,
+    });
+  } else {
+    rows.push({
+      state: 'warn',
+      label: 'LATCH_REVIEW_LOGIN matches whoever posts the review (cannot verify)',
+      fix: 'under provider=codex the review posts with GITHUB_TOKEN, so set LATCH_REVIEW_LOGIN=github-actions unless LATCH_REVIEW_TOKEN gives it another identity',
+    });
+  }
 
   process.stdout.write(c.bold('Latch doctor\n\n'));
   for (const r of rows) {
@@ -707,6 +825,12 @@ ${c.bold('init')}
   repo (landmines from CLAUDE.md/AGENTS.md; checks from your manifests). It will
   not overwrite existing files without --force, and it never touches your token —
   it prints the commands for a human to run.
+
+${c.bold('config')}
+  Every tunable is a repo Actions variable, so changes need no commit and no
+  workflow edit: pause the loop, switch provider (claude | codex), change the
+  model, effort, cycle cap or verdict status name. Set them at
+  ${CONSOLE_URL} or with \`gh variable set\`.
 
 ${c.dim('Docs: https://github.com/nishantkumar1292/latch')}
 `;

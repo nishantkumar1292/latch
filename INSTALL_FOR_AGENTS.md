@@ -4,11 +4,11 @@ This is the exact procedure for a coding agent — Claude Code, Codex, Cursor,
 Devin, OpenHands — to install Latch in a repository it is working on.
 
 **The hard rule:** an agent does the file changes; a **human** does the two steps
-that touch credentials and org settings. Latch is the *independent* gate, and it
-must post as `claude[bot]` (the Claude GitHub App) — installing an app and
-setting a secret are human actions. Never handle, request, echo, or store the
-token value. If you cannot complete a step because it needs the human, stop and
-hand back with the exact commands for them to run.
+that touch credentials and org settings. Latch is the *independent* gate, and on
+the default provider it must post as `claude[bot]` (the Claude GitHub App) —
+installing an app and setting a secret are human actions. Never handle, request,
+echo, or store the token value. If you cannot complete a step because it needs
+the human, stop and hand back with the exact commands for them to run.
 
 ---
 
@@ -61,8 +61,9 @@ hand back with the exact commands for them to run.
 These require org/repo permissions and a credential. The agent must not perform
 them or see the token.
 
-1. **Install the Claude GitHub App** (required — without it the review cannot
-   post as `claude[bot]`, and the fix hop never triggers):
+1. **Install the Claude GitHub App** (required on the default `claude` provider —
+   without it the review cannot post as `claude[bot]`, and the fix hop never
+   triggers):
 
    - <https://github.com/apps/claude>  — or run `claude /install-github-app`
 
@@ -75,12 +76,33 @@ them or see the token.
 
    # OR metered API key:
    gh secret set ANTHROPIC_API_KEY --app actions
+
+   # OR, only if you set the LATCH_PROVIDER variable to `codex`:
+   gh secret set OPENAI_API_KEY --app actions
    ```
 
 Then open a pull request. Latch reviews it, the fixer converges it, and the loop
 stops — **a human merges**. The `latch/merge-gate` check is **non-blocking by
 default**; make it a required check in branch protection only once you trust its
 false-positive rate.
+
+### Variables (optional — skip this and the defaults are the product)
+
+Everything tunable is a repository **variable**, and **every one of them is
+optional**: an install that sets none runs on the defaults, which is the
+supported path. A variable is not a credential, so unlike the secret above these
+are not human-only — an agent with `gh` access may set them itself. The easiest
+way to set them is the console at <https://latchgate.dev/console/>, which also
+runs a readiness check; from a terminal it is `gh variable set NAME`. The full
+table with defaults is in [README.md](./README.md#configuration). The ones an
+install most often needs:
+
+```sh
+gh variable set LATCH_MODEL         # independence knob (see Notes below)
+gh variable set LATCH_PROVIDER      # `claude` (default) or `codex`
+gh variable set LATCH_REVIEW_LOGIN  # `github-actions` when the provider is codex
+gh variable set LATCH_PAUSED        # `true` pauses the whole loop
+```
 
 ---
 
@@ -111,4 +133,19 @@ false-positive rate.
   human's to change, never the automated fixer's.
 - **Independence knob:** set the `LATCH_MODEL` repo variable to a model *unlike*
   your author-agent. A reviewer on the same weights that wrote the code shares its
-  blind spots.
+  blind spots. `LATCH_PROVIDER=codex` takes that as far as a different vendor —
+  read the cost first (the codex sandbox has no network, so network-dependent
+  `checks:` cannot run there, and `LATCH_REVIEW_LOGIN` must be set to
+  `github-actions` — unless the optional `LATCH_REVIEW_TOKEN` secret gives the
+  review an identity of its own — or the fixer will find no threads to
+  answer). See
+  [ARCHITECTURE.md](./docs/ARCHITECTURE.md#the-engine-is-switchable--claude-or-codex).
+- **A variable change needs no commit.** The workflows read every `LATCH_*`
+  variable at runtime, so a change made in the console (or with `gh variable
+  set`) takes effect on the **next run** — no PR against the workflow files, no
+  redeploy. That is deliberate: the loop must be pausable and re-pointable while
+  gated PRs are waiting.
+- **`LATCH_PAUSED=true` publishes no verdict status at all.** If the repo has
+  marked `latch/merge-gate` a required check, pausing blocks every merge until it
+  is un-required. Un-require first, then pause; Latch will not post a `MERGE`
+  status it has not earned.

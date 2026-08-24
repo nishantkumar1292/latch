@@ -34,6 +34,6 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test cli/test/*.test.js"
+    "test": "node --test cli/test/*.test.js site/console/test/*.test.js"
   }
 }

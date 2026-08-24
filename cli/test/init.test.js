@@ -203,13 +203,15 @@ test('the generated policy is valid YAML (verified with PyYAML when available)',
   try {
     runLatch(['init'], dir);
     const policyPath = require('path').join(dir, '.latch', 'policy.yml');
+    // Probe for the MODULE, not the interpreter. "when available" in the test
+    // name has to mean PyYAML: a machine with python3 and no yaml module used to
+    // fail this test for a reason that has nothing to do with the policy file,
+    // which trains everyone to ignore it.
+    const havePyYaml = spawnSync('python3', ['-c', 'import yaml'], { encoding: 'utf8' });
+    if (havePyYaml.error || havePyYaml.status !== 0) return; // PyYAML absent — CI always has it
     const py = spawnSync('python3', ['-c', 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))', policyPath], {
       encoding: 'utf8',
     });
-    if (py.error || py.status === null) {
-      // python3 not available in this environment — skip the strict check.
-      return;
-    }
     assert.strictEqual(py.status, 0, 'generated policy.yml must be valid YAML:\n' + py.stderr);
   } finally {
     cleanup(dir);

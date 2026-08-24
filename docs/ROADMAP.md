@@ -38,6 +38,34 @@ their own key.
 - [ ] **Escaped-bug / false-negative measurement** wired from the first real run — the
       metric is a core artifact, not a week-11 afterthought.
 
+## Phase 1.5 — configuration in the product: variables + console (delivered)
+
+The honest middle step between the OSS workflows and the hosted App: static, GitHub as
+the backend, no server of ours. See
+[PRODUCT.md](./PRODUCT.md#the-console--phase-15-the-honest-middle-step-shipped) and
+[ARCHITECTURE.md](./ARCHITECTURE.md#the-console-phase-15).
+
+- [x] **Every tunable read from repository Actions variables** at runtime, so a config
+      change takes effect on the next run with no commit and no PR — kill switch
+      (`LATCH_PAUSED`), provider, models, efforts, turn/timeout/cycle caps, verdict
+      status + context, reviewer login, doctrine. All optional and all validated; a
+      fresh install that sets nothing behaves exactly as before.
+- [x] **Provider switch** — `LATCH_PROVIDER=claude|codex`, both legs running for real
+      on either engine, with the codex sandbox's no-network cost documented rather
+      than papered over (no network-dependent `checks:`, no salvage rail, no turn cap).
+- [x] **Static console** at <https://latchgate.dev/console/> (source `site/console/`):
+      connect a repo, produce the integration change (open the `latch/install` PR or
+      hand instructions to a coding agent), readiness check, and a grouped
+      read/write panel for the `LATCH_*` variables.
+- [x] **CORS pass-through worker written** (`hosted/oauth-proxy/`) — stateless, no
+      secret, relays only GitHub's two device-flow endpoints.
+- [ ] **Register the GitHub OAuth App** for the console's device flow *(owner)*.
+- [ ] **Deploy the CORS pass-through worker** *(owner)* — see its `DEPLOY.md`.
+- [ ] **Paste the client id + worker URL into the console config** *(owner)*. Until
+      these three are done the device-flow sign-in is **not live**: the button shows a
+      "not configured" state and the fine-grained-PAT path is the way in.
+- [ ] Console screenshot for the README / landing page.
+
 ## Pre-launch tasks (gate the public launch)
 
 - [ ] **npm publish** of `latch-gate` (until then, `npx github:nishantkumar1292/latch

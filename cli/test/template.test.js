@@ -51,7 +51,10 @@ test("the salvage filter reads claude-code-action's real log shape", () => {
   // carries subtype/is_error/num_turns (base-action/src/execution-file.ts
   // writes `JSON.stringify(messages)`). Pin it by running the template's own
   // jq filter over that shape rather than trusting a string match.
-  const filter = /jq -r '([\s\S]*?)' \\\n/.exec(FIX);
+  // Anchored to the salvage assignment, not to "the first `jq -r` in the file":
+  // the codex legs added jq calls of their own, and an unanchored lazy match
+  // silently spliced two of them together into a filter that matched nothing.
+  const filter = /TURNS=\$\(jq -r '([\s\S]*?)' \\\n/.exec(FIX);
   assert.ok(filter, 'salvage jq filter found in the template');
   const jqAvailable = spawnSync('jq', ['--version']);
   if (jqAvailable.error) return; // jq absent locally — the runner always has it
