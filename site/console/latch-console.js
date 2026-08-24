@@ -234,6 +234,34 @@ var CONSOLE_CONFIG = {
     deviceNote.textContent = 'Device-flow sign-in is not configured on this deployment yet — use a fine-grained token below. (An owner enables it by registering a GitHub OAuth App with device flow and deploying the relay in hosted/oauth-proxy/, then filling in CONSOLE_CONFIG.)';
   }
 
+  // ── "How do I get a token?" ───────────────────────────────────────────────
+  // The permission matrix is rendered FROM core.TOKEN_PERMISSIONS rather than
+  // written into the HTML, so the table a user trusts cannot drift from the
+  // list the code actually needs.
+  function renderTokenHelp() {
+    var matrix = $('permMatrix');
+    if (matrix && !matrix.childNodes.length) {
+      core.TOKEN_PERMISSIONS.forEach(function (permission) {
+        var li = el('li');
+        li.setAttribute('data-level', permission.level);
+        var name = el('span', 'pm-name', permission.name);
+        name.appendChild(el('em', '', core.levelLabel(permission.level)));
+        li.appendChild(name);
+        li.appendChild(el('span', 'pm-why', permission.why));
+        matrix.appendChild(li);
+      });
+    }
+    // GitHub's documented prefill: name, owner, expiry and every permission.
+    // It fills the form in; only the user can press Generate.
+    var fine = core.fineGrainedTokenUrl({ owner: state.owner, expiresIn: 90 });
+    $('fineGrainedLink').href = fine;
+    $('fineGrainedInline').href = fine;
+    $('classicLink').href = core.classicTokenUrl();
+    $('fineGrainedOwnerNote').textContent = state.owner
+      ? 'Prefilled for ' + state.owner + ' with a 90-day expiration. You still pick the repository and press Generate.'
+      : 'Pick a repository below and this link prefills the resource owner too.';
+  }
+
   function endDeviceFlow() {
     state.device.running = false;
     state.device.cancelled = false;
@@ -318,6 +346,7 @@ var CONSOLE_CONFIG = {
     setStatus($('readinessStatus'), '');
     setStatus($('configStatus'), '');
     $('agentInstructions').textContent = 'Sign in and choose a repository to generate the instructions.';
+    renderTokenHelp();
   });
 
   // Adopt a token: prove it works, learn the login, then namespace storage by
@@ -378,6 +407,7 @@ var CONSOLE_CONFIG = {
     }
     state.owner = parsed.owner;
     state.repo = parsed.repo;
+    renderTokenHelp();
     state.vars = {};
     state.varsLoaded = false;
     state.drafts = {};
@@ -1072,6 +1102,7 @@ var CONSOLE_CONFIG = {
   // Boot
   // ═══════════════════════════════════════════════════════════════════════════
   renderOAuthAvailability();
+  renderTokenHelp();
 
   (function resume() {
     var shared = localStore();
