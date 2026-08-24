@@ -362,7 +362,7 @@ details[open]>summary::after{content:"−";color:var(--brand)}
 
                   <p class="eyebrow">Fine-grained · recommended</p>
                   <ol class="walkthrough">
-                    <li>Open <a id="fineGrainedInline" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a>. The button below opens it with the name and every permission in the table already filled in (and the owner too, once you pick a repo below).</li>
+                    <li>Open <a id="fineGrainedInline" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a>. The button below is meant to open it with the name and every permission in the table filled in (and the owner too, once you pick a repo below) — double-check them on the form before you generate.</li>
                     <li>Name it <code>Latch Console</code> and pick an <strong>Expiration</strong>. When it expires the console simply asks for a new one.</li>
                     <li>Set <strong>Resource owner</strong> to the account or organization that owns the repository.</li>
                     <li>Under <strong>Repository access</strong> choose <code>Only select repositories</code> and pick the single repo you are configuring.</li>
@@ -382,7 +382,7 @@ details[open]>summary::after{content:"−";color:var(--brand)}
                   <div class="actions">
                     <a class="btn" id="classicLink" href="https://github.com/settings/tokens/new" target="_blank" rel="noopener noreferrer">Create classic token ↗</a>
                   </div>
-                  <p class="note-muted">Confirm <code>repo</code> and <code>workflow</code> are ticked before you generate: GitHub documents the prefill for fine-grained tokens but not for classic ones, so treat the preselection as a convenience rather than a guarantee. The tradeoff is the reason fine-grained is listed first — a classic token reaches <strong>every</strong> repository your account can reach, while a fine-grained one is confined to the repositories you picked.</p>
+                  <p class="note-muted">Confirm <code>repo</code> and <code>workflow</code> are ticked before you generate: treat the preselection as a convenience to check rather than a guarantee, the same as the fine-grained link above. The tradeoff is the reason fine-grained is listed first — a classic token reaches <strong>every</strong> repository your account can reach, while a fine-grained one is confined to the repositories you picked.</p>
 
                 </div>
               </details>

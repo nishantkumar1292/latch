@@ -251,14 +251,15 @@ var CONSOLE_CONFIG = {
         matrix.appendChild(li);
       });
     }
-    // GitHub's documented prefill: name, owner, expiry and every permission.
-    // It fills the form in; only the user can press Generate.
+    // The believed-documented prefill (see fineGrainedTokenUrl in core): name,
+    // owner, expiry and every permission. It is meant to fill the form in; only
+    // the user can press Generate.
     var fine = core.fineGrainedTokenUrl({ owner: state.owner, expiresIn: 90 });
     $('fineGrainedLink').href = fine;
     $('fineGrainedInline').href = fine;
     $('classicLink').href = core.classicTokenUrl();
     $('fineGrainedOwnerNote').textContent = state.owner
-      ? 'This link pre-selects ' + state.owner + ', a 90-day expiration and the permissions in the table — double-check them on the form, then pick the repository and press Generate.'
+      ? 'This link is meant to pre-select ' + state.owner + ', a 90-day expiration and the permissions in the table — double-check them on the form, then pick the repository and press Generate.'
       : 'Pick a repository below and this link prefills the resource owner too.';
   }
 
