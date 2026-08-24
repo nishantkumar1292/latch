@@ -258,7 +258,7 @@ var CONSOLE_CONFIG = {
     $('fineGrainedInline').href = fine;
     $('classicLink').href = core.classicTokenUrl();
     $('fineGrainedOwnerNote').textContent = state.owner
-      ? 'Prefilled for ' + state.owner + ' with a 90-day expiration. You still pick the repository and press Generate.'
+      ? 'This link pre-selects ' + state.owner + ', a 90-day expiration and the permissions in the table — double-check them on the form, then pick the repository and press Generate.'
       : 'Pick a repository below and this link prefills the resource owner too.';
   }
 
