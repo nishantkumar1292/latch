@@ -899,15 +899,22 @@
     return encodeURIComponent(value).replace(/%20/g, '+');
   }
 
-  // The prefill form we build (believed-documented, not confirmed from this
-  // runner — GitHub's reference documents permission NAMES and LEVELS, but not
-  // this query-key prefill mechanism, so `target_name`, `expires_in`, and
-  // `actions_variables` as query keys are our best reading and want one eyeball
-  // on a live form before they are leaned on):
+  // The prefill form we build. GitHub documents this mechanism under
+  // "Pre-filling fine-grained personal access token details using URL
+  // parameters"; its "Supported query parameters" table lists `name`,
+  // `description`, `target_name` (the token's resource target) and `expires_in`
+  // (1-366 days, or none) alongside the per-permission keys:
   //   /settings/personal-access-tokens/new?name=&description=&target_name=
   //     &expires_in=&<permission>=<read|write>
-  // The user still picks the repository and presses Generate; nothing here can
-  // mint a token on anyone's behalf.
+  //
+  // Mind the asymmetry, which is easy to get backwards: the DOCUMENTED prefill
+  // is the fine-grained one. There is no equivalent documented section for the
+  // classic `?scopes=` form — it works in practice, which is why the classic
+  // copy asks the reader to confirm the ticks rather than promising them.
+  //
+  // Documented is not the same as watched: nothing here observes the rendered
+  // form, so the copy still asks the reader to check it. The user picks the
+  // repository and presses Generate; nothing here can mint a token.
   function fineGrainedTokenUrl(options) {
     var opts = options || {};
     var params = ['name=' + encodeParam(opts.name || TOKEN_NAME)];
